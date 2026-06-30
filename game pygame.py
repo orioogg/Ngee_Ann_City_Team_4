@@ -1,5 +1,5 @@
 import pygame
-import random  # to generate different building heights
+import random  # to generate different building heights 
 
 # 1. Initialization
 pygame.init()

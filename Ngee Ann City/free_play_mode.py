@@ -3,6 +3,7 @@ import pygame
 # Domain runtime storage data scopes
 free_city = []
 free_turn = 1
+free_profit = 0
 show_fp_overlay = False
 fp_overlay_timer = 0
 selected_bldg = None
@@ -14,16 +15,65 @@ def init_mode(assets_ref):
     free_city = [[' '] * c["FREE_COLS"] for _ in range(c["FREE_ROWS"])]
 
 def reset():
-    global free_city, free_turn, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode
+    global free_city, free_turn, free_profit, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode
     free_city = [[' '] * 5 for _ in range(5)]
     free_turn = 1
+    free_profit = 0
     selected_bldg = None
     placement_mode = False
     show_fp_overlay = True
     fp_overlay_timer = 360  # 6 seconds popup notice duration
 
+def calculate_profit():
+    global free_profit, free_city
+    rows = len(free_city)
+    cols = len(free_city[0])
+    
+    income = 0
+    upkeep = 0
+
+    visited_r = [[False] * cols for _ in range(rows)]
+    
+    for r in range(rows):
+        for c in range(cols):
+            b_type = free_city[r][c]
+            if b_type == ' ':
+                continue
+            
+            if b_type == 'R':
+                income += 1
+                if not visited_r[r][c]:
+                    upkeep += 1  
+                    queue = [(r, c)]
+                    visited_r[r][c] = True
+                    while queue:
+                        curr_r, curr_c = queue.pop(0)
+                        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            nr, nc = curr_r + dr, curr_c + dc
+                            if 0 <= nr < rows and 0 <= nc < cols:
+                                if free_city[nr][nc] == 'R' and not visited_r[nr][nc]:
+                                    visited_r[nr][nc] = True
+                                    queue.append((nr, nc))
+            elif b_type == 'I':
+                income += 2
+                upkeep += 1
+            elif b_type == 'C':
+                income += 3
+                upkeep += 2
+            elif b_type == 'O':
+                upkeep += 1
+            elif b_type == '*':
+                has_neighbor_road = False
+                for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < rows and 0 <= nc < cols and free_city[nr][nc] == '*':
+                        has_neighbor_road = True
+                        break
+                if not has_neighbor_road:
+                    upkeep += 1
+    free_profit += (income - upkeep)
+
 def draw_grid(screen, grid, rows, cols, gx, gy, cell_px, mouse_pos, colors, fonts, hoverable):
-    utils = pygame.display.get_surface()
     for r in range(rows):
         for c in range(cols):
             cr = pygame.Rect(gx + c * cell_px, gy + r * cell_px, cell_px, cell_px)
@@ -39,7 +89,6 @@ def draw_grid(screen, grid, rows, cols, gx, gy, cell_px, mouse_pos, colors, font
             pygame.draw.rect(screen, bg, cr)
             pygame.draw.rect(screen, colors["GRID_LINE"], cr, 1)
             
-            # Draw established blocks centered as 1:2 vertical rectangles
             if grid[r][c] != ' ':
                 bc = colors["BUILDING_COLORS"].get(grid[r][c], (255, 255, 255))
                 rect_w, rect_h = 34, 68
@@ -49,7 +98,7 @@ def draw_grid(screen, grid, rows, cols, gx, gy, cell_px, mouse_pos, colors, font
                 screen.blit(s, s.get_rect(center=bldg_rect.center))
 
 def update(events, mouse_pos, assets):
-    global free_turn, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, free_city
+    global free_turn, free_profit, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, free_city
     next_state = "freeplay"
     
     screen = assets["screen"]
@@ -62,8 +111,13 @@ def update(events, mouse_pos, assets):
     screen.fill((5, 14, 8))
     utils["draw_header"]("◆  FREE PLAY MODE  ◆", t_color=colors["GREEN_NEON"], bg=(0, 24, 8), line_color=colors["GREEN_NEON"])
     
-    s = fonts["medium"].render(f"TURN: {free_turn}", True, (255, 255, 255))
-    screen.blit(s, (assets["SCREEN_W"] - 160, layout["HEADER_H"] // 2 - s.get_height() // 2))
+    # Render Turn and Profit Counter Indicators (Allows signed negative rendering via :+d formatter)
+    s_t = fonts["medium"].render(f"TURN: {free_turn}", True, (255, 255, 255))
+    p_color = colors["GREEN_NEON"] if free_profit >= 0 else colors["RED"]
+    s_p = fonts["medium"].render(f"PROFIT: {free_profit:+d}", True, p_color)
+    
+    screen.blit(s_p, (assets["SCREEN_W"] - 320, layout["HEADER_H"] // 2 - s_p.get_height() // 2))
+    screen.blit(s_t, (assets["SCREEN_W"] - 130, layout["HEADER_H"] // 2 - s_t.get_height() // 2))
 
     utils["draw_sidebar_panel"](bg=(0, 12, 5), line=colors["GREEN_NEON"])
 
@@ -85,22 +139,24 @@ def update(events, mouse_pos, assets):
         SY += 44
 
     # Hotkey Mapping Inputs Tracking Layout
-    for idx, b_char in enumerate(['R', 'I', 'C', 'O']):
+    for idx, b_char in enumerate(['R', 'I', 'C', 'O', '*']):
         lbl_h = fonts["tiny"].render(f"Press [{b_char}]", True, (120, 150, 130))
         screen.blit(lbl_h, (layout["SIDEBAR_W"] - 95, layout["HEADER_H"] + 48 + (idx * 44)))
 
-    demo_r = pygame.Rect(10, assets["SCREEN_H"] - 165, layout["SIDEBAR_W"] - 20, 38)
+    # --- Sidebar Action Buttons Positioning Control Layout ---
+    end_turn_r = pygame.Rect(10, assets["SCREEN_H"] - 165, layout["SIDEBAR_W"] - 20, 42)
+    utils["draw_btn"](end_turn_r, "▶  END TURN", fonts["medium"], mouse_pos, color=colors["GOLD"])
+
+    demo_r = pygame.Rect(10, assets["SCREEN_H"] - 115, layout["SIDEBAR_W"] - 20, 35)
     utils["draw_btn"](demo_r, "DEMOLISH  [stub]", fonts["tiny"], mouse_pos, color=(180, 60, 60))
 
     menu_r = pygame.Rect(10, assets["SCREEN_H"] - 68, layout["SIDEBAR_W"] - 20, 40)
     utils["draw_btn"](menu_r, "[Q]  MAIN MENU", fonts["small"], mouse_pos, color=colors["GREEN_NEON"])
 
-    # Draw Current Core Matrix 
     draw_grid(screen, free_city, const["FREE_ROWS"], const["FREE_COLS"],
               layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"], mouse_pos, colors, fonts, hoverable=placement_mode)
     utils["draw_grid_labels"](const["FREE_ROWS"], const["FREE_COLS"], layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"])
 
-    # ── 1:2 Drag Follow and Snap Frame Rendering Preview Engine ──
     if placement_mode and selected_bldg:
         cell = utils["grid_cell_at"](*mouse_pos, layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"], const["FREE_ROWS"], const["FREE_COLS"])
         rect_w, rect_h = 34, 68
@@ -119,19 +175,17 @@ def update(events, mouse_pos, assets):
         lbl = fonts["small"].render(selected_bldg, True, (10, 10, 10))
         screen.blit(lbl, lbl.get_rect(center=p_rect.center))
 
-    # Countdown notification overlays
     if show_fp_overlay:
         fp_overlay_timer -= 1
         if fp_overlay_timer <= 0:
             show_fp_overlay = False
         utils["draw_retro_popup"]([
             "FREE PLAY: Unlimited coins on a 5x5 grid.",
-            "Construction costs 1 coin per turn.",
+            "Place buildings, then click 'END TURN' to compute profits.",
             "Build on a border cell to expand the perimeter:",
             "1st Expansion -> 15x15  |  2nd Expansion -> 25x25"
         ])
 
-    # Event Handlers Loop Processing Thread
     for event in events:
         if show_fp_overlay and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             show_fp_overlay = False; fp_overlay_timer = 0; continue
@@ -143,11 +197,21 @@ def update(events, mouse_pos, assets):
             elif event.key == pygame.K_i: selected_bldg = 'I'; placement_mode = True
             elif event.key == pygame.K_c: selected_bldg = 'C'; placement_mode = True
             elif event.key == pygame.K_o: selected_bldg = 'O'; placement_mode = True
+            elif event.key == pygame.K_8 or event.key == pygame.K_KP_MULTIPLY: selected_bldg = '*'; placement_mode = True
             elif event.key == pygame.K_ESCAPE: selected_bldg = None; placement_mode = False
 
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if menu_r.collidepoint(mouse_pos):
                 next_state = "main_menu"; selected_bldg = None; placement_mode = False
+                continue
+
+            # Check explicit End Turn Commit click
+            if end_turn_r.collidepoint(mouse_pos):
+                free_turn += 1
+                calculate_profit()
+                assets["system"]["set_msg"]("Turn committed! Finances recalculated.")
+                selected_bldg = None
+                placement_mode = False
                 continue
 
             btn_clicked = False
@@ -164,16 +228,15 @@ def update(events, mouse_pos, assets):
                     r, c = cell
                     if free_city[r][c] == ' ':
                         free_city[r][c] = selected_bldg
-                        free_turn += 1
+                        assets["system"]["set_msg"](f"Staged {selected_bldg}. Click 'End Turn' to commit calculation.")
                         selected_bldg = None
                         placement_mode = False
                     else:
                         assets["system"]["set_msg"]("Cell is already occupied.")
 
-    # Render error/success prompt logs
     msg, m_timer = assets["system"]["get_msg"]()
     if m_timer > 0:
-        s_msg = fonts["small"].render(msg, True, (255, 80, 80))
-        screen.blit(s_msg, (8, assets["SCREEN_H"] - 130))
+        s_msg = fonts["small"].render(msg, True, colors["CYBER_CYAN"] if "Staged" in msg or "committed" in msg else (255, 80, 80))
+        screen.blit(s_msg, (8, assets["SCREEN_H"] - 145))
 
-    return next_state, {'menu': menu_r, 'demolish': demo_r, **bldg_btns}
+    return next_state, {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}

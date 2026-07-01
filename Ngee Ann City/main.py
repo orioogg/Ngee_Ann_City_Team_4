@@ -1,3 +1,4 @@
+# Run this code to start the game
 import pygame
 import random
 import sys

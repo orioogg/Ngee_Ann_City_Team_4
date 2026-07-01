@@ -33,19 +33,19 @@ def main_menu():
     while True:
 
         print("""
-===================================
-      NGEE ANN CITY BUILDER
-===================================
+=============================================
+            NGEE ANN CITY BUILDER
+=============================================
 
-1. Start New Arcade Game
-2. Start New Free Play Game
-3. Load Saved Game
-              
+    1) Start New Arcade Game
+    2) Start New Free Play Game
+    3) Load Saved Game
+          
 
-4. Display High Scores
-5. Exit Game
+    4) Display High Scores
+    5) Exit Game
 
-===================================
+=============================================
 """)
 
         choice = input("Your choice? ")
@@ -81,7 +81,7 @@ def draw_city(city):
     print("    ", end='')
 
     for c in range(len(city[0])):
-        print(f"{c+1:2}", end=' ')
+        print(f"{c+1:2}", end='  ')
 
     print()
 
@@ -120,14 +120,14 @@ def arcade_mode():
         while building2 == building1:
             building2 = random.choice(buildings)
 
-        print()
+        print('''\n====================================================================================''')
         print("Choose a building to construct")
-        print("-------------------------------")
-        print(f"1) {building1}")
-        print(f"2) {building2}")
+        print(f"    1) {building1}")
+        print(f"    2) {building2}")
         print()
-        print("0) Return to Main Menu")
-        print("-------------------------------")
+        print("    0) Return to Main Menu")
+        print('''====================================================================================''')
+        print("")
 
         choice = input("Your choice? ")
 
@@ -140,10 +140,13 @@ def arcade_mode():
             if board_full(city):
                 final_score = calculate_score()
 
-                print("\n====================")
-                print("GAME OVER")
-                print("====================")
-                print(f"Final Score : {final_score}")
+                print('''\n
+=====================================
+            GAME OVER
+=====================================
+    Final Score: {}
+=====================================
+                      ''', format(final_score))
 
                 input("\nPress Enter...")
                 break
@@ -154,10 +157,13 @@ def arcade_mode():
             if board_full(city):
                 final_score = calculate_score()
 
-            print("\n====================")
-            print("GAME OVER")
-            print("====================")
-            print(f"Final Score : {final_score}")
+            print('''\n
+=====================================
+            GAME OVER
+=====================================
+    Final Score: {}
+=====================================
+                ''', format(final_score))
 
             input("\nPress Enter...")
             break
@@ -172,12 +178,12 @@ def arcade_mode():
 def show_arcade_stats():
 
     print('''
-========================================
-Arcade Mode
-========================================
-Coins : {}
-Turn  : {}
-========================================
+====================================================================================
+                                    Arcade Mode
+====================================================================================
+        Coins : {}
+        Turn  : {}
+====================================================================================
 '''.format(coins, turn))
 # == ARCADE STATISTICS ==
 
@@ -187,18 +193,27 @@ Turn  : {}
 def freeplay_mode():
 
     global free_turn
+
     print("Free Play Mode is under development.")
     while True:
 
-        print('''===================
-            Free Play Mode
-        ===================''')
-        print(f"Turn : {free_turn}")
+        print('''
+====================================================================================
+                                  Free Play Mode
+====================================================================================
+    Turn  : {}
+====================================================================================
+'''.format(free_turn))
 
+        # Print Free City's Default 5x5 Map
         draw_city(free_city)
 
-        print("0) Return to Main Menu")
-
+        print('''\n====================================================================================''')
+        print("Choose an available option:")
+        print("    0) Return to Main Menu")
+        print('''====================================================================================''')
+        print("")
+        
         choice = input("Your choice? ")
 
         if choice == '0':

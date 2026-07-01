@@ -58,9 +58,14 @@ def update(events, mouse_pos, assets):
     
     s_c = fonts["medium"].render(f"COINS: {coins}", True, colors["GOLD"])
     s_t = fonts["medium"].render(f"TURN: {turn}", True, (255, 255, 255))
-    screen.blit(s_c, (assets["SCREEN_W"] - 295, layout["HEADER_H"] // 2 - s_c.get_height() // 2))
-    screen.blit(s_t, (assets["SCREEN_W"] - 115, layout["HEADER_H"] // 2 - s_t.get_height() // 2))
 
+    margin = 20
+    gap    = 24
+    t_x = assets["SCREEN_W"] - margin - s_t.get_width()
+    c_x = t_x - gap - s_c.get_width()
+
+    screen.blit(s_c, (c_x, layout["HEADER_H"] // 2 - s_c.get_height() // 2))
+    screen.blit(s_t, (t_x, layout["HEADER_H"] // 2 - s_t.get_height() // 2))
     utils["draw_sidebar_panel"]()
 
     SY = layout["HEADER_H"] + 14
@@ -92,8 +97,24 @@ def update(events, mouse_pos, assets):
     msg, m_timer = assets["system"]["get_msg"]()
     if m_timer > 0:
         is_err = any(w in msg for w in ("occupied", "adjacent", "Invalid"))
-        s_msg = fonts["small"].render(msg, True, (255, 80, 80) if is_err else colors["GREEN_NEON"])
-        screen.blit(s_msg, (8, assets["SCREEN_H"] - 155))
+        col = (255, 80, 80) if is_err else colors["GREEN_NEON"]
+
+        msg_y = SY + 42 + 14 + 5 * 13 + 12   # below the 5-item legend
+        max_w = layout["SIDEBAR_W"] - 16
+        words, lines, cur = msg.split(), [], ""
+        for w in words:
+            trial = f"{cur} {w}".strip()
+            if fonts["small"].size(trial)[0] <= max_w:
+                cur = trial
+            else:
+                lines.append(cur)
+                cur = w
+        if cur:
+            lines.append(cur)
+
+        for i, line in enumerate(lines):
+            s_msg = fonts["small"].render(line, True, col)
+            screen.blit(s_msg, (8, msg_y + i * 18))
 
     demo_r = pygame.Rect(10, assets["SCREEN_H"] - 165, layout["SIDEBAR_W"] - 20, 38)
     utils["draw_btn"](demo_r, "DEMOLISH  [stub]", fonts["tiny"], mouse_pos, color=(180, 60, 60))

@@ -13,6 +13,9 @@ selected_grid_cell = None  # Tracks (row, col) targeted for demolition
 def init_mode(assets_ref):
     global free_city, selected_grid_cell
     c = assets_ref["constants"]
+    # Initialize constants dynamically in case of full state reload
+    c["FREE_ROWS"] = 5
+    c["FREE_COLS"] = 5
     free_city = [[' '] * c["FREE_COLS"] for _ in range(c["FREE_ROWS"])]
     selected_grid_cell = None
 
@@ -76,6 +79,46 @@ def calculate_profit():
                     upkeep += 1
     free_profit += (income - upkeep)
 
+def check_and_expand_grid(r, c, const, layout, assets):
+    """
+    Checks if a building was built on the outer perimeter border bounds.
+    If true, pads 5 empty rows/columns around all perimeters up to 15x15 then 25x25.
+    Also resizes cell layouts on-the-fly to fit screen view constraints cleanly.
+    """
+    global free_city
+    current_rows = const["FREE_ROWS"]
+    current_cols = const["FREE_COLS"]
+    
+    # Check if placement hit any perimeter border layer
+    if r == 0 or r == current_rows - 1 or c == 0 or c == current_cols - 1:
+        if current_rows == 5:
+            new_size = 15
+            layout["FREE_CELL"] = 32  # Downscale square dimensions to fit layout comfortably
+            assets["system"]["set_msg"]("Border reached! City expanded to 15x15 perimeter.")
+        elif current_rows == 15:
+            new_size = 25
+            layout["FREE_CELL"] = 20  # Extreme compression scaling for massive 25x25 rendering
+            assets["system"]["set_msg"]("Border reached! City expanded to massive 25x25 perimeter.")
+        else:
+            return  # Maximum expansion threshold achieved caps at 25x25
+
+        # Create padded grid layout housing central state offsets
+        pad = 5
+        new_grid = [[' '] * new_size for _ in range(new_size)]
+        
+        for old_r in range(current_rows):
+            for old_c in range(current_cols):
+                new_grid[old_r + pad][old_c + pad] = free_city[old_r][old_c]
+                
+        free_city = new_grid
+        const["FREE_ROWS"] = new_size
+        const["FREE_COLS"] = new_size
+        
+        # Center the newly-resized map coordinate origins on-screen dynamically 
+        grid_w_px = new_size * layout["FREE_CELL"]
+        canvas_avail_w = assets["SCREEN_W"] - layout["SIDEBAR_W"]
+        layout["FREE_GRID_X"] = layout["SIDEBAR_W"] + (canvas_avail_w - grid_w_px) // 2
+
 def draw_grid(screen, grid, rows, cols, gx, gy, cell_px, mouse_pos, colors, fonts, hoverable, target_cell=None):
     for r in range(rows):
         for c in range(cols):
@@ -94,15 +137,20 @@ def draw_grid(screen, grid, rows, cols, gx, gy, cell_px, mouse_pos, colors, font
             
             if grid[r][c] != ' ':
                 bc = colors["BUILDING_COLORS"].get(grid[r][c], (255, 255, 255))
-                rect_w, rect_h = 34, 68
+                # Scale physical visual token items layout bounds automatically to adapt cell shrink thresholds
+                rect_w = max(12, int(cell_px * 0.45))
+                rect_h = max(24, int(cell_px * 0.90))
                 bldg_rect = pygame.Rect(cr.centerx - rect_w // 2, cr.centery - rect_h // 2, rect_w, rect_h)
-                pygame.draw.rect(screen, bc, bldg_rect, border_radius=4)
-                s = fonts["small"].render(grid[r][c], True, (10, 10, 10))
+                pygame.draw.rect(screen, bc, bldg_rect, border_radius=2 if cell_px < 30 else 4)
+                
+                # Dynamic text scaling check so letters don't bleed out of small cards
+                font_node = fonts["tiny"] if cell_px < 25 else fonts["small"]
+                s = font_node.render(grid[r][c], True, (10, 10, 10))
                 screen.blit(s, s.get_rect(center=bldg_rect.center))
             
             # Draw highlight overlay around target demolition candidate cell
             if target_cell == (r, c):
-                pygame.draw.rect(screen, colors.get("GREEN_NEON", (50, 255, 50)), cr, 3)
+                pygame.draw.rect(screen, colors.get("GREEN_NEON", (50, 255, 50)), cr, 2 if cell_px < 30 else 3)
 
 def update(events, mouse_pos, assets):
     global free_turn, free_profit, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, free_city, selected_grid_cell
@@ -116,15 +164,16 @@ def update(events, mouse_pos, assets):
     const = assets["constants"]
 
     screen.fill((5, 14, 8))
-    utils["draw_header"]("◆  FREE PLAY MODE  ◆", t_color=colors["GREEN_NEON"], bg=(0, 24, 8), line_color=colors["GREEN_NEON"])
+    utils["draw_header"]("FREE PLAY MODE", t_color=colors["GREEN_NEON"], bg=(0, 24, 8), line_color=colors["GREEN_NEON"])
     
-    # Render Turn and Profit Counter Indicators
+    # --- TOP RIGHT STATS PLACEMENT ---
     s_t = fonts["medium"].render(f"TURN: {free_turn}", True, (255, 255, 255))
     p_color = colors["GREEN_NEON"] if free_profit >= 0 else colors["RED"]
     s_p = fonts["medium"].render(f"PROFIT: {free_profit:+d}", True, p_color)
     
-    screen.blit(s_p, (assets["SCREEN_W"] - 320, layout["HEADER_H"] // 2 - s_p.get_height() // 2))
-    screen.blit(s_t, (assets["SCREEN_W"] - 130, layout["HEADER_H"] // 2 - s_t.get_height() // 2))
+    top_right_x = assets["SCREEN_W"] - max(s_t.get_width(), s_p.get_width()) - 20
+    screen.blit(s_t, (top_right_x, 12))
+    screen.blit(s_p, (top_right_x, 38))
 
     utils["draw_sidebar_panel"](bg=(0, 12, 5), line=colors["GREEN_NEON"])
 
@@ -167,7 +216,8 @@ def update(events, mouse_pos, assets):
 
     if placement_mode and selected_bldg:
         cell = utils["grid_cell_at"](*mouse_pos, layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"], const["FREE_ROWS"], const["FREE_COLS"])
-        rect_w, rect_h = 34, 68
+        rect_w = max(12, int(layout["FREE_CELL"] * 0.45))
+        rect_h = max(24, int(layout["FREE_CELL"] * 0.90))
         bc = colors["BUILDING_COLORS"].get(selected_bldg, (255, 255, 255))
         
         if cell:
@@ -180,7 +230,8 @@ def update(events, mouse_pos, assets):
 
         pygame.draw.rect(screen, bc, p_rect, border_radius=4)
         pygame.draw.rect(screen, (255, 255, 255), p_rect, 2, border_radius=4)
-        lbl = fonts["small"].render(selected_bldg, True, (10, 10, 10))
+        font_node = fonts["tiny"] if layout["FREE_CELL"] < 25 else fonts["small"]
+        lbl = font_node.render(selected_bldg, True, (10, 10, 10))
         screen.blit(lbl, lbl.get_rect(center=p_rect.center))
 
     if show_fp_overlay:
@@ -196,17 +247,39 @@ def update(events, mouse_pos, assets):
 
     for event in events:
         if show_fp_overlay and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            show_fp_overlay = False; fp_overlay_timer = 0; continue
+            show_fp_overlay = False
+            fp_overlay_timer = 0
+            continue
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_q:
-                next_state = "main_menu"; selected_bldg = None; placement_mode = False; selected_grid_cell = None
-            elif event.key == pygame.K_r: selected_bldg = 'R'; placement_mode = True; selected_grid_cell = None
-            elif event.key == pygame.K_i: selected_bldg = 'I'; placement_mode = True; selected_grid_cell = None
-            elif event.key == pygame.K_c: selected_bldg = 'C'; placement_mode = True; selected_grid_cell = None
-            elif event.key == pygame.K_o: selected_bldg = 'O'; placement_mode = True; selected_grid_cell = None
-            elif event.key == pygame.K_8 or event.key == pygame.K_KP_MULTIPLY: selected_bldg = '*'; placement_mode = True; selected_grid_cell = None
-            elif event.key == pygame.K_ESCAPE: selected_bldg = None; placement_mode = False
+                next_state = "main_menu"
+                selected_bldg = None
+                placement_mode = False
+                selected_grid_cell = None
+            elif event.key == pygame.K_r: 
+                selected_bldg = 'R'
+                placement_mode = True
+                selected_grid_cell = None
+            elif event.key == pygame.K_i: 
+                selected_bldg = 'I'
+                placement_mode = True
+                selected_grid_cell = None
+            elif event.key == pygame.K_c: 
+                selected_bldg = 'C'
+                placement_mode = True
+                selected_grid_cell = None
+            elif event.key == pygame.K_o: 
+                selected_bldg = 'O'
+                placement_mode = True
+                selected_grid_cell = None
+            elif event.key == pygame.K_8 or event.key == pygame.K_KP_MULTIPLY: 
+                selected_bldg = '*'
+                placement_mode = True
+                selected_grid_cell = None
+            elif event.key == pygame.K_ESCAPE: 
+                selected_bldg = None
+                placement_mode = False
             
             # Hotkey: [E] for End Turn
             elif event.key == pygame.K_e:
@@ -217,6 +290,7 @@ def update(events, mouse_pos, assets):
                 placement_mode = False
                 selected_grid_cell = None
                 
+            # Hotkey: [D] for Demolish
             elif event.key == pygame.K_d:
                 if selected_grid_cell is not None:
                     dr, dc = selected_grid_cell
@@ -230,7 +304,10 @@ def update(events, mouse_pos, assets):
 
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if menu_r.collidepoint(mouse_pos):
-                next_state = "main_menu"; selected_bldg = None; placement_mode = False; selected_grid_cell = None
+                next_state = "main_menu"
+                selected_bldg = None
+                placement_mode = False
+                selected_grid_cell = None
                 continue
 
             # Check explicit End Turn Commit click
@@ -243,7 +320,7 @@ def update(events, mouse_pos, assets):
                 selected_grid_cell = None
                 continue
 
-            # Process explicit Demolish Event Command Click Loop (Always allowed)
+            # Process explicit Demolish Event Command Click Loop
             if demo_r.collidepoint(mouse_pos):
                 if selected_grid_cell is not None:
                     dr, dc = selected_grid_cell
@@ -272,7 +349,8 @@ def update(events, mouse_pos, assets):
                     if placement_mode and selected_bldg:
                         if free_city[r][c] == ' ':
                             free_city[r][c] = selected_bldg
-                            assets["system"]["set_msg"](f"Staged {selected_bldg}. Click 'End Turn' to commit calculation.")
+                            # Trigger perimeter layout check immediately on construction placement loop
+                            check_and_expand_grid(r, c, const, layout, assets)
                             selected_bldg = None
                             placement_mode = False
                         else:
@@ -293,8 +371,9 @@ def update(events, mouse_pos, assets):
         pad_x, pad_y = 12, 8
         box_w = s_msg.get_width() + (pad_x * 2)
         box_h = s_msg.get_height() + (pad_y * 2)
-        box_x = 10
-        box_y = assets["SCREEN_H"] - 155
+        
+        box_x = layout["FREE_GRID_X"]
+        box_y = layout["FREE_GRID_Y"] + (const["FREE_ROWS"] * layout["FREE_CELL"]) + 15
         
         msg_box_rect = pygame.Rect(box_x, box_y, box_w, box_h)
         

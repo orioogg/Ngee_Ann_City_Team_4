@@ -9,7 +9,7 @@ fp_overlay_timer = 0
 selected_bldg = None
 placement_mode = False
 selected_grid_cell = None  # Tracks (row, col) targeted for demolition
-conesecutive_losses = 0 # tracks the consecutive losses
+consecutive_losses = 0 # tracks the consecutive losses
 
 def init_mode(assets_ref):
     global free_city, selected_grid_cell
@@ -21,7 +21,7 @@ def init_mode(assets_ref):
     selected_grid_cell = None
 
 def reset():
-    global free_city, free_turn, free_profit, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, selected_grid_cell
+    global free_city, free_turn, free_profit, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, selected_grid_cell, consecutive_losses
     free_city = [[' '] * 5 for _ in range(5)]
     free_turn = 1
     free_profit = 0

@@ -9,6 +9,7 @@ fp_overlay_timer = 0
 selected_bldg = None
 placement_mode = False
 selected_grid_cell = None  # Tracks (row, col) targeted for demolition
+conesecutive_losses = 0 # tracks the consecutive losses
 
 def init_mode(assets_ref):
     global free_city, selected_grid_cell
@@ -24,6 +25,7 @@ def reset():
     free_city = [[' '] * 5 for _ in range(5)]
     free_turn = 1
     free_profit = 0
+    consecutive_losses = 0 
     selected_bldg = None
     placement_mode = False
     show_fp_overlay = True
@@ -31,7 +33,7 @@ def reset():
     selected_grid_cell = None
 
 def calculate_profit():
-    global free_profit, free_city
+    global free_profit, free_city, consecutive_losses
     rows = len(free_city)
     cols = len(free_city[0])
     
@@ -77,7 +79,18 @@ def calculate_profit():
                         break
                 if not has_neighbor_road:
                     upkeep += 1
+
     free_profit += (income - upkeep)
+
+    #tracking consecutive loss
+    if income < upkeep:
+        consecutive_losses += 1
+    else:
+        consecutive_losses = 0
+
+    if consecutive_losses >= 20:
+        return True  # triggers game over
+    return False
 
 def check_and_expand_grid(r, c, const, layout, assets):
     """
@@ -284,8 +297,10 @@ def update(events, mouse_pos, assets):
             # Hotkey: [E] for End Turn
             elif event.key == pygame.K_e:
                 free_turn += 1
-                calculate_profit()
-                assets["system"]["set_msg"]("Turn committed! Finances recalculated.")
+                if calculate_profit():
+                    next_state = "game_over"
+                else:
+                    assets["system"]["set_msg"]("Turn committed! Finances recalculated.")
                 selected_bldg = None
                 placement_mode = False
                 selected_grid_cell = None
@@ -313,8 +328,10 @@ def update(events, mouse_pos, assets):
             # Check explicit End Turn Commit click
             if end_turn_r.collidepoint(mouse_pos):
                 free_turn += 1
-                calculate_profit()
-                assets["system"]["set_msg"]("Turn committed! Finances recalculated.")
+                if calculate_profit():
+                    next_state = "game_over"
+                else:
+                    assets["system"]["set_msg"]("Turn committed! Finances recalculated.")
                 selected_bldg = None
                 placement_mode = False
                 selected_grid_cell = None
@@ -383,3 +400,4 @@ def update(events, mouse_pos, assets):
         screen.blit(s_msg, (box_x + pad_x, box_y + pad_y))
 
     return next_state, {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
+

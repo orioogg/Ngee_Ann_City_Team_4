@@ -3,11 +3,13 @@ import random
 
 coins = 16
 turn = 1
+score = 0
 city = []
 bldg1 = None
 bldg2 = None
 selected_bldg = None
 placement_mode = False
+
 
 def init_mode(assets_ref):
     global city
@@ -16,9 +18,11 @@ def init_mode(assets_ref):
     new_bldg_pair(c["BUILDINGS"])
 
 def reset():
-    global coins, turn, city, selected_bldg, placement_mode
+    global coins, turn, score
+    global city, selected_bldg, placement_mode
     coins = 16
     turn = 1
+    score = 0
     city = [[' '] * 20 for _ in range(20)]
     selected_bldg = None
     placement_mode = False
@@ -42,8 +46,94 @@ def is_valid_placement(r, c, rows, cols):
             return True, ""
     return False, "Must be adjacent to an existing building."
 
+# Jun Wei NACG-22 
+def get_adjacent(r, c):
+    neighbours = []
+
+    for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+        nr = r + dr
+        nc = c + dc
+
+        if 0 <= nr < len(city) and 0 <= nc < len(city[0]):
+            if city[nr][nc] != ' ':
+                neighbours.append(city[nr][nc])
+
+    return neighbours
+
+
+def calculate_building_score(r, c):
+
+    building = city[r][c]
+    neighbours = get_adjacent(r, c)
+
+    if building == "R":
+
+        if "I" in neighbours:
+            return 1
+
+        score = 0
+
+        for b in neighbours:
+
+            if b == "R":
+                score += 1
+
+            elif b == "C":
+                score += 1
+
+            elif b == "O":
+                score += 2
+
+        return score
+
+    elif building == "I":
+        return sum(row.count("I") for row in city)
+
+    elif building == "C":
+        return neighbours.count("C")
+
+    elif building == "O":
+        return neighbours.count("O")
+
+    elif building == "*":
+
+        connected = 1
+
+        # Check left
+        col = c - 1
+        while col >= 0 and city[r][col] == "*":
+            connected += 1
+            col -= 1
+
+        # Check right
+        col = c + 1
+        while col < len(city[0]) and city[r][col] == "*":
+            connected += 1
+            col += 1
+
+        return connected
+
+
+def calculate_total_score():
+
+    total = 0
+
+    for r in range(len(city)):
+        for c in range(len(city[0])):
+
+            if city[r][c] != ' ':
+                building_score = calculate_building_score(r, c)
+                print(f"{city[r][c]} at ({r},{c}) = {building_score}")
+                total += building_score
+
+    print("Total =", total)
+    return total
+# END
+
 def update(events, mouse_pos, assets):
-    global coins, turn, selected_bldg, placement_mode, bldg1, bldg2, city
+    global coins, turn, score
+    global selected_bldg, placement_mode
+    global bldg1, bldg2, city
     next_state = "arcade"
     
     screen = assets["screen"]
@@ -56,8 +146,9 @@ def update(events, mouse_pos, assets):
     screen.fill((8, 3, 18))
     utils["draw_header"]("◆  ARCADE MODE  ◆")
     
+    s_score = fonts["medium"].render(f"SCORE: {score}", True, colors["GREEN_NEON"])
     s_c = fonts["medium"].render(f"COINS: {coins}", True, colors["GOLD"])
-    s_t = fonts["medium"].render(f"TURN: {turn}", True, (255, 255, 255))
+    s_t = fonts["medium"].render(f"TURN: {turn}", True, (255,255,255))
 
     margin = 20
     gap    = 24
@@ -66,6 +157,8 @@ def update(events, mouse_pos, assets):
 
     screen.blit(s_c, (c_x, layout["HEADER_H"] // 2 - s_c.get_height() // 2))
     screen.blit(s_t, (t_x, layout["HEADER_H"] // 2 - s_t.get_height() // 2))
+    screen.blit(s_score, (20, layout["HEADER_H"] // 2 - s_score.get_height() // 2))
+
     utils["draw_sidebar_panel"]()
 
     SY = layout["HEADER_H"] + 14
@@ -157,11 +250,17 @@ def update(events, mouse_pos, assets):
                     r, c = cell
                     ok, reason = is_valid_placement(r, c, const["ARCADE_ROWS"], const["ARCADE_COLS"])
                     if ok:
+
                         city[r][c] = selected_bldg
+                        score = calculate_total_score()
+                        print("Placed:", selected_bldg)
+                        print("Score:", score)
+
                         coins -= 1
                         turn += 1
                         selected_bldg = None
                         placement_mode = False
+
                         new_bldg_pair(const["BUILDINGS"])
                         assets["system"]["set_msg"]("Building placed!")
                         if all(cell != ' ' for row in city for cell in row) or coins <= 0:

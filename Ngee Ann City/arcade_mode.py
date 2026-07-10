@@ -236,14 +236,21 @@ def update(events, mouse_pos, assets):
                     # --- Demolition Action Segment ---
                     if demolish_mode:
                         if city[r][c] != ' ':
-                            city[r][c] = ' '
-                            score = calculate_total_score()  # Recalculate and update current score status
-                            coins -= 1
-                            turn += 1
-                            demolish_mode = False  # clear tool brush selection
-                            assets["system"]["set_msg"]("Building demolished!")
-                            if coins <= 0:
-                                next_state = "game_over"
+                        # explicitly verify player has at least 1 coin before proceeding
+                            if coins >= 1:
+                                city[r][c] = ' '
+                                score = calculate_total_score()  # recalculate score status
+                                coins -= 1
+                                turn += 1
+                                demolish_mode = False  # clear tool brush selection
+                                assets["system"]["set_msg"]("Building demolished!")
+            
+                                # Check for game over state
+                                if coins <= 0:
+                                    next_state = "game_over"
+                            else:
+                            # inform player they cannot afford the action
+                                assets["system"]["set_msg"]("Cannot afford demolition! (Requires 1 Coin)")
                         else:
                             assets["system"]["set_msg"]("Cell is already empty!")
                     

@@ -20,7 +20,7 @@ def init_mode(assets_ref):
     free_city = [[' '] * c["FREE_COLS"] for _ in range(c["FREE_ROWS"])]
     selected_grid_cell = None
 
-def reset():
+def reset(assets=None):
     global free_city, free_turn, free_profit, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, selected_grid_cell, consecutive_losses
     free_city = [[' '] * 5 for _ in range(5)]
     free_turn = 1
@@ -31,6 +31,22 @@ def reset():
     show_fp_overlay = True
     fp_overlay_timer = 360  # 6 seconds popup notice duration
     selected_grid_cell = None
+
+    if assets:
+        const = assets["constants"]
+        layout = assets["layout"]
+        
+        #reset row/col bounds counters back to initial constraints
+        const["FREE_ROWS"] = 5
+        const["FREE_COLS"] = 5
+        
+        #restore grid tile scale size to its default width parameters
+        layout["FREE_CELL"] = 90  
+        
+        #re-center grid layout box dynamically based on the original default scale coordinates
+        grid_w_px = 5 * layout["FREE_CELL"]
+        canvas_avail_w = assets["SCREEN_W"] - layout["SIDEBAR_W"]
+        layout["FREE_GRID_X"] = layout["SIDEBAR_W"] + (canvas_avail_w - grid_w_px) // 2
 
 def calculate_profit():
     global free_profit, free_city, consecutive_losses
@@ -266,10 +282,9 @@ def update(events, mouse_pos, assets):
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_q:
-                next_state = "main_menu"
-                selected_bldg = None
-                placement_mode = False
-                selected_grid_cell = None
+                reset(assets)  #reset everything back to 5x5 layout (to fix bug)
+                pygame.event.clear()  #clear out lingering inputs
+                return "main_menu", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
             elif event.key == pygame.K_r: 
                 selected_bldg = 'R'
                 placement_mode = True
@@ -319,19 +334,20 @@ def update(events, mouse_pos, assets):
 
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if menu_r.collidepoint(mouse_pos):
-                next_state = "main_menu"
-                selected_bldg = None
-                placement_mode = False
-                selected_grid_cell = None
-                continue
+                reset(assets)  #reset layout parameters
+                pygame.event.clear()  #clear clicks so they don't bleed onto menu items
+                return "main_menu", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
 
             # Check explicit End Turn Commit click
             if end_turn_r.collidepoint(mouse_pos):
                 free_turn += 1
                 if calculate_profit():
-                    next_state = "game_over"
+                    reset(assets)  # wipes grid back to 5x5 so game_over won't crash on reload!
+                    pygame.event.clear()
+                    return "game_over", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
                 else:
                     assets["system"]["set_msg"]("Turn committed! Finances recalculated.")
+                
                 selected_bldg = None
                 placement_mode = False
                 selected_grid_cell = None

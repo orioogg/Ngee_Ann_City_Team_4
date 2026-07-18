@@ -39,12 +39,18 @@ def new_bldg_pair(pool):
 def is_valid_placement(r, c, rows, cols):
     if city[r][c] != ' ':
         return False, "Cell is already occupied."
-    if turn == 1:
+
+    # Allow placement if the city is empty
+    if all(cell == ' ' for row in city for cell in row):
         return True, ""
-    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-        nr, nc = r + dr, c + dc
-        if 0 <= nr < rows and 0 <= nc < cols and city[nr][nc] != ' ':
-            return True, ""
+
+    for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+        nr = r + dr
+        nc = c + dc
+        if 0 <= nr < rows and 0 <= nc < cols:
+            if city[nr][nc] != ' ':
+                return True, ""
+
     return False, "Must be adjacent to an existing building."
 
 def get_adjacent(r, c):

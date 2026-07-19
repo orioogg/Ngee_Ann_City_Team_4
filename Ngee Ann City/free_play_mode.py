@@ -10,6 +10,9 @@ selected_bldg = None
 placement_mode = False
 selected_grid_cell = None  # Tracks (row, col) targeted for demolition
 consecutive_losses = 0 # tracks the consecutive losses
+loss_warning_shown = False  # NACG-28: whether the popup has fired for the current 15+ streak
+loss_warning_popup_active = False  # True while the blocking centre-screen popup awaits [UNDERSTOOD]
+loss_warning_sidebar_active = False  # True while consecutive_losses >= 15; drives the sidebar reminder
 
 def init_mode(assets_ref):
     global free_city, selected_grid_cell
@@ -22,10 +25,14 @@ def init_mode(assets_ref):
 
 def reset(assets=None):
     global free_city, free_turn, free_profit, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, selected_grid_cell, consecutive_losses
+    global loss_warning_shown, loss_warning_popup_active, loss_warning_sidebar_active
     free_city = [[' '] * 5 for _ in range(5)]
     free_turn = 1
     free_profit = 0
     consecutive_losses = 0 
+    loss_warning_shown = False
+    loss_warning_popup_active = False
+    loss_warning_sidebar_active = False
     selected_bldg = None
     placement_mode = False
     show_fp_overlay = True
@@ -48,8 +55,14 @@ def reset(assets=None):
         canvas_avail_w = assets["SCREEN_W"] - layout["SIDEBAR_W"]
         layout["FREE_GRID_X"] = layout["SIDEBAR_W"] + (canvas_avail_w - grid_w_px) // 2
 
-def calculate_profit():
+def calculate_profit(assets=None):
+    """
+    assets is optional so existing calls without it still work, but callers
+    that want NACG-28's loss-streak warnings (and the routine "Turn
+    committed!" message) should pass assets in.
+    """
     global free_profit, free_city, consecutive_losses
+    global loss_warning_shown, loss_warning_popup_active, loss_warning_sidebar_active
     rows = len(free_city)
     cols = len(free_city[0])
     
@@ -106,6 +119,34 @@ def calculate_profit():
 
     if consecutive_losses >= 20:
         return True  # triggers game over
+
+    # NACG-28: As a player in Free Play Mode, I want the game to warn me
+    # when I have made a loss for 15 consecutive turns, so I can make
+    # changes before the game ends. Purely informational - reuses the
+    # existing non-blocking message bar, and goes quiet on its own once
+    # consecutive_losses resets to 0 above (i.e. the moment a turn is
+    # profitable again), matching "warning is dismissed until it triggers
+    # point 1 again".
+    # NACG-28: As a player in Free Play Mode, I want the game to warn me
+    # when I have made a loss for 15 consecutive turns, so I can make
+    # changes before the game ends. Mirrors NACG-29's pattern: a blocking
+    # centre-screen popup fires once per streak (acknowledged via
+    # [UNDERSTOOD]), then a permanent sidebar reminder takes over and keeps
+    # counting down each turn. Both switch off automatically the moment
+    # consecutive_losses resets to 0 above (i.e. a profitable turn),
+    # matching "warning is dismissed until it triggers point 1 again".
+    if consecutive_losses >= 15:
+        if not loss_warning_shown:
+            loss_warning_shown = True
+            loss_warning_popup_active = True
+        loss_warning_sidebar_active = True
+    else:
+        loss_warning_shown = False
+        loss_warning_sidebar_active = False
+
+    if assets and consecutive_losses < 15:
+        assets["system"]["set_msg"]("Turn committed! Finances recalculated.")
+
     return False
 
 def check_and_expand_grid(r, c, const, layout, assets):
@@ -183,6 +224,7 @@ def draw_grid(screen, grid, rows, cols, gx, gy, cell_px, mouse_pos, colors, font
 
 def update(events, mouse_pos, assets):
     global free_turn, free_profit, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, free_city, selected_grid_cell
+    global consecutive_losses, loss_warning_shown, loss_warning_popup_active, loss_warning_sidebar_active
     next_state = "freeplay"
     
     screen = assets["screen"]
@@ -228,6 +270,18 @@ def update(events, mouse_pos, assets):
         lbl_h = fonts["tiny"].render(f"Press [{b_char}]", True, (120, 150, 130))
         screen.blit(lbl_h, (layout["SIDEBAR_W"] - 95, layout["HEADER_H"] + 48 + (idx * 44)))
 
+    if loss_warning_sidebar_active:
+        warn_box = pygame.Rect(10, assets["SCREEN_H"] - 214, layout["SIDEBAR_W"] - 20, 44)
+        pygame.draw.rect(screen, (60, 15, 15), warn_box, border_radius=4)
+        pygame.draw.rect(screen, (255, 90, 90), warn_box, 2, border_radius=4)
+        if consecutive_losses == 15:
+            line2 = "Ends in 5 turns if this continues!"
+        else:
+            turns_remaining = max(0, 20 - consecutive_losses)
+            line2 = f"{turns_remaining} turn(s) left before game over!"
+        utils["draw_text_c"]("WARNING: LOSS STREAK", fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 14)
+        utils["draw_text_c"](line2, fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 30)
+
     # --- Sidebar Action Buttons Positioning Control Layout ---
     end_turn_r = pygame.Rect(10, assets["SCREEN_H"] - 165, layout["SIDEBAR_W"] - 20, 42)
     utils["draw_btn"](end_turn_r, "[E]  END TURN", fonts["medium"], mouse_pos, color=colors["GOLD"])
@@ -242,6 +296,13 @@ def update(events, mouse_pos, assets):
               layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"], mouse_pos, colors, fonts, 
               hoverable=placement_mode, target_cell=selected_grid_cell)
     utils["draw_grid_labels"](const["FREE_ROWS"], const["FREE_COLS"], layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"])
+
+    # Small, always-on readout so the player can track the streak from turn 1,
+    # separate from the pop-up/sidebar warning which only appears at 15+.
+    loss_line_y = layout["FREE_GRID_Y"] + (const["FREE_ROWS"] * layout["FREE_CELL"]) + 58
+    loss_line_color = (255, 130, 130) if consecutive_losses >= 15 else (150, 150, 170)
+    loss_line = fonts["tiny"].render(f"Consecutive turns with losses: {consecutive_losses}", True, loss_line_color)
+    screen.blit(loss_line, (layout["FREE_GRID_X"], loss_line_y))
 
     if placement_mode and selected_bldg:
         cell = utils["grid_cell_at"](*mouse_pos, layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"], const["FREE_ROWS"], const["FREE_COLS"])
@@ -274,7 +335,31 @@ def update(events, mouse_pos, assets):
             "1st Expansion -> 15x15  |  2nd Expansion -> 25x25"
         ])
 
+    # NACG-28: centre-screen blocking popup for the 15-turn loss-streak warning
+    loss_understood_r = None
+    if loss_warning_popup_active:
+        dim = pygame.Surface((assets["SCREEN_W"], assets["SCREEN_H"]), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 165))
+        screen.blit(dim, (0, 0))
+
+        box_w, box_h = 500, 220
+        box_rect = pygame.Rect((assets["SCREEN_W"] - box_w) // 2, (assets["SCREEN_H"] - box_h) // 2, box_w, box_h)
+        pygame.draw.rect(screen, (10, 25, 12), box_rect, border_radius=10)
+        pygame.draw.rect(screen, (255, 90, 90), box_rect, 3, border_radius=10)
+
+        utils["draw_text_c"]("⚠  LOSS STREAK WARNING", fonts["medium"], (255, 90, 90), box_rect.centerx, box_rect.y + 45)
+        utils["draw_text_c"]("Net loss for 15 consecutive turns!", fonts["small"], (255, 255, 255), box_rect.centerx, box_rect.y + 95)
+        utils["draw_text_c"]("Game will end in 5 turns if this continues.", fonts["tiny"], (220, 220, 220), box_rect.centerx, box_rect.y + 120)
+
+        loss_understood_r = pygame.Rect(box_rect.centerx - 90, box_rect.bottom - 55, 180, 42)
+        utils["draw_btn"](loss_understood_r, "UNDERSTOOD", fonts["small"], mouse_pos, color=(255, 90, 90))
+
     for event in events:
+        if loss_warning_popup_active:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and loss_understood_r and loss_understood_r.collidepoint(mouse_pos):
+                loss_warning_popup_active = False
+            continue  # swallow all other input while the popup must be acknowledged
+
         if show_fp_overlay and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             show_fp_overlay = False
             fp_overlay_timer = 0
@@ -312,10 +397,8 @@ def update(events, mouse_pos, assets):
             # Hotkey: [E] for End Turn
             elif event.key == pygame.K_e:
                 free_turn += 1
-                if calculate_profit():
+                if calculate_profit(assets):
                     next_state = "game_over"
-                else:
-                    assets["system"]["set_msg"]("Turn committed! Finances recalculated.")
                 selected_bldg = None
                 placement_mode = False
                 selected_grid_cell = None
@@ -341,13 +424,11 @@ def update(events, mouse_pos, assets):
             # Check explicit End Turn Commit click
             if end_turn_r.collidepoint(mouse_pos):
                 free_turn += 1
-                if calculate_profit():
+                if calculate_profit(assets):
                     reset(assets)  # wipes grid back to 5x5 so game_over won't crash on reload!
                     pygame.event.clear()
                     return "game_over", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
-                else:
-                    assets["system"]["set_msg"]("Turn committed! Finances recalculated.")
-                
+
                 selected_bldg = None
                 placement_mode = False
                 selected_grid_cell = None

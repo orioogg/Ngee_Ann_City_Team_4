@@ -198,6 +198,7 @@ state = "main_menu"
 current_buttons = {}
 message = ""
 message_timer = 0
+final_score = 0  # Stores final score for Game Over screen
 
 def set_msg(text):
     global message, message_timer
@@ -228,8 +229,12 @@ while True:
         state, current_buttons = main_menu.update(events, mouse_pos, assets)
     elif state == "arcade":
         state, current_buttons = arcade_mode.update(events, mouse_pos, assets)
+        if 'score' in current_buttons:
+            final_score = current_buttons['score']
     elif state == "freeplay":
         state, current_buttons = free_play_mode.update(events, mouse_pos, assets)
+        if 'score' in current_buttons:
+            final_score = current_buttons['score']
     elif state in ("load_game", "high_scores"):
         draw_bg_skyline()
         draw_text_c(state.replace("_", " ").upper(), assets["fonts"]["large"], assets["colors"]["CYBER_CYAN"], SCREEN_W // 2, 240)
@@ -243,8 +248,12 @@ while True:
                     state = "main_menu"
     elif state == "game_over":
         draw_bg_skyline()
-        draw_text_c("GAME OVER", assets["fonts"]["title"], assets["colors"]["RED"], SCREEN_W // 2, 270)
-        back_r = pygame.Rect(SCREEN_W // 2 - 165, 432, 330, 50)
+        # Header
+        draw_text_c("GAME OVER", assets["fonts"]["title"], assets["colors"]["RED"], SCREEN_W // 2, 230)
+        # Display Final Score
+        draw_text_c(f"FINAL SCORE: {final_score}", assets["fonts"]["medium"], assets["colors"]["GOLD"], SCREEN_W // 2, 310)
+        
+        back_r = pygame.Rect(SCREEN_W // 2 - 165, 380, 330, 50)
         draw_btn(back_r, "MAIN MENU", assets["fonts"]["medium"], mouse_pos)
         current_buttons = {'back': back_r}
         for event in events:

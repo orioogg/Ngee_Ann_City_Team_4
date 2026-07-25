@@ -10,7 +10,7 @@ bldg2 = None
 selected_bldg = None
 placement_mode = False
 demolish_mode = False  # track if demolition tool brush is active
-coin_warning_shown = False  # NACG-29: tracks whether the 5-coins-left warning has fired for the current dip
+coin_warning_shown = False  # tracks whether the 5-coins-left warning has fired for the current dip
 coin_warning_popup_active = False  # True while the centre-screen "Understood" popup is waiting to be dismissed
 coin_warning_sidebar_active = False  # True once triggered - stays on permanently, does not time out
 
@@ -75,6 +75,7 @@ def calculate_building_score(r, c):
     neighbours = get_adjacent(r, c)
 
     if building == "R":
+        # Rule: If next to Industry (I), it scores 1 point only
         if "I" in neighbours:
             return 1
         b_score = 0
@@ -86,39 +87,49 @@ def calculate_building_score(r, c):
         return b_score
 
     elif building == "I":
+        # Rule: Scores 1 point per Industry in the city
         return sum(row.count("I") for row in city)
 
     elif building == "C":
+        # Rule: Scores 1 point per Commercial adjacent to it
         return neighbours.count("C")
 
     elif building == "O":
+        # Rule: Scores 1 point per Park adjacent to it
         return neighbours.count("O")
 
     elif building == "*":
+        # Rule: Scores 1 point per connected road (*) in the same row
         connected = 1
-        # Check left
+        # Scan left
         col = c - 1
         while col >= 0 and city[r][col] == "*":
             connected += 1
             col -= 1
-        # Check right
+        # Scan right
         col = c + 1
         while col < len(city[0]) and city[r][col] == "*":
             connected += 1
             col += 1
         return connected
+
     return 0
 
+def calculate_total_city_coin_income():
+    """
+    Scans the entire city grid and calculates the total coin income generated 
+    by ALL Industry (I) and Commercial (C) buildings based on adjacent Residential (R) buildings.
+    """
+    total_income = 0
+    for r in range(len(city)):
+        for c in range(len(city[0])):
+            bldg = city[r][c]
+            if bldg in ("I", "C"):
+                neighbours = get_adjacent(r, c)
+                total_income += neighbours.count("R")
+    return total_income
+
 def check_coin_warning(assets):
-    """
-    NACG-29: As a player in Arcade Mode, I want the game to warn me when I
-    have 5 coins left to reassess the number of coins I have to make profits.
-    Fires once when coins first drop to exactly 5: opens a blocking centre-
-    screen popup that must be acknowledged via [UNDERSTOOD], and switches on
-    a permanent sidebar reminder that stays for the rest of the game.
-    Re-arms (coin_warning_shown) if coins ever climb back above 5, so a
-    later dip pops the centre-screen warning up again.
-    """
     global coin_warning_shown, coin_warning_popup_active, coin_warning_sidebar_active
     if coins == 5 and not coin_warning_shown:
         coin_warning_shown = True
@@ -127,14 +138,12 @@ def check_coin_warning(assets):
     elif coins > 5:
         coin_warning_shown = False
 
-
 def calculate_total_score():
     total = 0
     for r in range(len(city)):
         for c in range(len(city[0])):
             if city[r][c] != ' ':
-                building_score = calculate_building_score(r, c)
-                total += building_score
+                total += calculate_building_score(r, c)
     return total
 
 def update(events, mouse_pos, assets):
@@ -152,14 +161,14 @@ def update(events, mouse_pos, assets):
     const = assets["constants"]
 
     screen.fill((8, 3, 18))
-    utils["draw_header"]("◆  ARCADE MODE  ◆")
+    utils["draw_header"](" ARCADE MODE ")
     
     s_score = fonts["medium"].render(f"SCORE: {score}", True, colors["GREEN_NEON"])
     s_c = fonts["medium"].render(f"COINS: {coins}", True, colors["GOLD"])
     s_t = fonts["medium"].render(f"TURN: {turn}", True, (255, 255, 255))
 
     margin = 20
-    gap    = 24
+    gap = 24
     t_x = assets["SCREEN_W"] - margin - s_t.get_width()
     c_x = t_x - gap - s_c.get_width()
 
@@ -251,7 +260,6 @@ def update(events, mouse_pos, assets):
 
     utils["draw_grid_labels"](const["ARCADE_ROWS"], const["ARCADE_COLS"], layout["ARCADE_GRID_X"], layout["ARCADE_GRID_Y"], layout["ARCADE_CELL"])
 
-    # NACG-29: centre-screen blocking popup for the low-coins warning
     understood_r = None
     if coin_warning_popup_active:
         dim = pygame.Surface((assets["SCREEN_W"], assets["SCREEN_H"]), pygame.SRCALPHA)
@@ -275,7 +283,7 @@ def update(events, mouse_pos, assets):
         if coin_warning_popup_active:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and understood_r and understood_r.collidepoint(mouse_pos):
                 coin_warning_popup_active = False
-            continue  # swallow all other input while the popup must be acknowledged
+            continue
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_q: next_state = "main_menu"
@@ -300,21 +308,22 @@ def update(events, mouse_pos, assets):
                     # --- Demolition Action Segment ---
                     if demolish_mode:
                         if city[r][c] != ' ':
-                        # explicitly verify player has at least 1 coin before proceeding
                             if coins >= 1:
                                 city[r][c] = ' '
-                                score = calculate_total_score()  # recalculate score status
-                                coins -= 1
+                                score = calculate_total_score()
+                                
+                                # Demolition costs 1 coin + collect turn income from city
+                                income = calculate_total_city_coin_income()
+                                coins = coins - 1 + income
+                                
                                 turn += 1
-                                demolish_mode = False  # clear tool brush selection
+                                demolish_mode = False
                                 assets["system"]["set_msg"]("Building demolished!")
-                                check_coin_warning(assets)  # NACG-29: warn if this spend dropped us to 5 coins
-            
-                                # Check for game over state
+                                check_coin_warning(assets)
+                                
                                 if coins <= 0:
                                     next_state = "game_over"
                             else:
-                            # inform player they cannot afford the action
                                 assets["system"]["set_msg"]("Cannot afford demolition! (Requires 1 Coin)")
                         else:
                             assets["system"]["set_msg"]("Cell is already empty!")
@@ -324,17 +333,34 @@ def update(events, mouse_pos, assets):
                         ok, reason = is_valid_placement(r, c, const["ARCADE_ROWS"], const["ARCADE_COLS"])
                         if ok:
                             city[r][c] = selected_bldg
-                            score = calculate_total_score()  # Recalculate and update current score status
-                            coins -= 1
+                            score = calculate_total_score()
+                            
+                            # Deduction for placement (-1 coin) + collect turn income from city
+                            income = calculate_total_city_coin_income()
+                            coins = coins - 1 + income
+                            
                             turn += 1
                             selected_bldg = None
                             placement_mode = False
                             new_bldg_pair(const["BUILDINGS"])
-                            assets["system"]["set_msg"]("Building placed!")
-                            check_coin_warning(assets)  # NACG-29: warn if this spend dropped us to 5 coins
+                            
+                            if income > 0:
+                                assets["system"]["set_msg"](f"Building placed! (+{income} coin(s) generated)")
+                            else:
+                                assets["system"]["set_msg"]("Building placed!")
+
+                            check_coin_warning(assets)
+                            
                             if all(cell != ' ' for row in city for cell in row) or coins <= 0:
                                 next_state = "game_over"
                         else:
                             assets["system"]["set_msg"](reason)
 
-    return next_state, {'btn1': btn1, 'btn2': btn2, 'cancel': cancel_r, 'menu': menu_r, 'demolish': demo_r}
+    return next_state, {
+        'btn1': btn1, 
+        'btn2': btn2, 
+        'cancel': cancel_r, 
+        'menu': menu_r, 
+        'demolish': demo_r,
+        'score': score  # To show the current score
+    }

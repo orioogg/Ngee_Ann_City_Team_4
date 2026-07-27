@@ -1,5 +1,6 @@
 import pygame
 import random
+import save_manager
 
 coins = 16
 turn = 1
@@ -13,6 +14,34 @@ demolish_mode = False  # track if demolition tool brush is active
 coin_warning_shown = False  # tracks whether the 5-coins-left warning has fired for the current dip
 coin_warning_popup_active = False  # True while the centre-screen "Understood" popup is waiting to be dismissed
 coin_warning_sidebar_active = False  # True once triggered - stays on permanently, does not time out
+
+def load_save():
+    """
+    Restore module globals from the arcade save file.
+    Returns (True, message) on success, (False, message) on failure.
+    """
+    global coins, turn, score, city, bldg1, bldg2
+    global coin_warning_shown, coin_warning_popup_active, coin_warning_sidebar_active
+    global selected_bldg, placement_mode, demolish_mode
+
+    data, err = save_manager.load_arcade()
+    if data is None:
+        return False, err
+
+    coins  = data["coins"]
+    turn   = data["turn"]
+    score  = data["score"]
+    city   = data["city"]
+    bldg1  = data["bldg1"]
+    bldg2  = data["bldg2"]
+    coin_warning_shown           = data.get("coin_warning_shown", False)
+    coin_warning_sidebar_active  = data.get("coin_warning_sidebar_active", False)
+    coin_warning_popup_active    = False  # never restore a blocking popup
+    selected_bldg  = None
+    placement_mode = False
+    demolish_mode  = False
+    return True, "Arcade game loaded!"
+
 
 def init_mode(assets_ref):
     global city
@@ -131,12 +160,13 @@ def calculate_total_city_coin_income():
 
 def check_coin_warning(assets):
     global coin_warning_shown, coin_warning_popup_active, coin_warning_sidebar_active
-    if coins == 5 and not coin_warning_shown:
+    if coins <= 5 and not coin_warning_shown:
         coin_warning_shown = True
         coin_warning_popup_active = True
         coin_warning_sidebar_active = True
     elif coins > 5:
         coin_warning_shown = False
+        coin_warning_sidebar_active = False
 
 def calculate_total_score():
     total = 0
@@ -240,10 +270,12 @@ def update(events, mouse_pos, assets):
     demo_bg = (130, 40, 40) if demolish_mode else (180, 60, 60)
     utils["draw_btn"](demo_r, "[D] DEMOLISH", fonts["small"], mouse_pos, color=demo_bg)
 
+    save_r   = pygame.Rect(10, assets["SCREEN_H"] - 168, layout["SIDEBAR_W"] - 20, 40)
     cancel_r = pygame.Rect(10, assets["SCREEN_H"] - 118, layout["SIDEBAR_W"] - 20, 40)
-    menu_r = pygame.Rect(10, assets["SCREEN_H"] - 68, layout["SIDEBAR_W"] - 20, 40)
-    utils["draw_btn"](cancel_r, "[ESC]  CANCEL", fonts["small"], mouse_pos)
-    utils["draw_btn"](menu_r, "[Q]  MAIN MENU", fonts["small"], mouse_pos)
+    menu_r   = pygame.Rect(10, assets["SCREEN_H"] - 68,  layout["SIDEBAR_W"] - 20, 40)
+    utils["draw_btn"](save_r,   "[S]  SAVE GAME",  fonts["small"], mouse_pos, color=(0, 180, 100))
+    utils["draw_btn"](cancel_r, "[ESC]  CANCEL",   fonts["small"], mouse_pos)
+    utils["draw_btn"](menu_r,   "[Q]  MAIN MENU",  fonts["small"], mouse_pos)
 
     # Core Matrix Grid Renderer 
     for r in range(const["ARCADE_ROWS"]):
@@ -291,9 +323,21 @@ def update(events, mouse_pos, assets):
             elif event.key == pygame.K_1: selected_bldg = bldg1; placement_mode = True; demolish_mode = False
             elif event.key == pygame.K_2: selected_bldg = bldg2; placement_mode = True; demolish_mode = False
             elif event.key == pygame.K_d: selected_bldg = None; placement_mode = False; demolish_mode = not demolish_mode
+            elif event.key == pygame.K_s:
+                ok, msg = save_manager.save_arcade(
+                    coins, turn, score, city, bldg1, bldg2,
+                    coin_warning_shown, coin_warning_sidebar_active
+                )
+                assets["system"]["set_msg"](msg)
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if btn1.collidepoint(mouse_pos): selected_bldg = bldg1; placement_mode = True; demolish_mode = False
             elif btn2.collidepoint(mouse_pos): selected_bldg = bldg2; placement_mode = True; demolish_mode = False
+            elif save_r.collidepoint(mouse_pos):
+                ok, msg = save_manager.save_arcade(
+                    coins, turn, score, city, bldg1, bldg2,
+                    coin_warning_shown, coin_warning_sidebar_active
+                )
+                assets["system"]["set_msg"](msg)
             elif cancel_r.collidepoint(mouse_pos): selected_bldg = None; placement_mode = False; demolish_mode = False
             elif menu_r.collidepoint(mouse_pos): next_state = "main_menu"
             elif demo_r.collidepoint(mouse_pos):
@@ -362,5 +406,6 @@ def update(events, mouse_pos, assets):
         'cancel': cancel_r, 
         'menu': menu_r, 
         'demolish': demo_r,
-        'score': score  # To show the current score
+        'save': save_r,
+        'score': score
     }

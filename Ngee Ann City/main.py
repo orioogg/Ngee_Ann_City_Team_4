@@ -7,6 +7,7 @@ import sys
 import main_menu
 import arcade_mode
 import free_play_mode
+import load_game
 
 pygame.init()
 
@@ -235,9 +236,11 @@ while True:
         state, current_buttons = free_play_mode.update(events, mouse_pos, assets)
         if 'score' in current_buttons:
             final_score = current_buttons['score']
-    elif state in ("load_game", "high_scores"):
+    elif state == "load_game":
+        state, current_buttons = load_game.update(events, mouse_pos, assets)
+    elif state == "high_scores":
         draw_bg_skyline()
-        draw_text_c(state.replace("_", " ").upper(), assets["fonts"]["large"], assets["colors"]["CYBER_CYAN"], SCREEN_W // 2, 240)
+        draw_text_c("HIGH SCORES", assets["fonts"]["large"], assets["colors"]["CYBER_CYAN"], SCREEN_W // 2, 240)
         draw_text_c("UNDER DEVELOPMENT", assets["fonts"]["medium"], (255, 255, 255), SCREEN_W // 2, 296)
         back_r = pygame.Rect(SCREEN_W // 2 - 165, 372, 330, 50)
         draw_btn(back_r, "BACK TO MAIN MENU", assets["fonts"]["medium"], mouse_pos)

@@ -14,7 +14,14 @@ demolish_mode = False  # track if demolition tool brush is active
 coin_warning_shown = False  # tracks whether the 5-coins-left warning has fired for the current dip
 coin_warning_popup_active = False  # True while the centre-screen "Understood" popup is waiting to be dismissed
 coin_warning_sidebar_active = False  # True once triggered - stays on permanently, does not time out
+save_popup_active = False  # True while the save result popup awaits dismissal
+save_popup_ok = False      # True = saved successfully, False = failed
+save_popup_msg = ""        # message to display in the save popup
 
+# ── Murray — Restore full game state from save file ───────────────────────────
+# Reads arcade_save.json and repopulates all module globals so the player
+# can resume exactly where they left off, including board dimensions,
+# building layout, score, coins, and warning states.
 def load_save():
     """
     Restore module globals from the arcade save file.
@@ -40,6 +47,14 @@ def load_save():
     selected_bldg  = None
     placement_mode = False
     demolish_mode  = False
+
+    # Restore board dimensions so the grid renders at the correct size
+    saved_rows = data.get("rows", len(city))
+    saved_cols = data.get("cols", len(city[0]) if city else 20)
+    # Ensure the city grid matches the saved dimensions (guard against corrupt data)
+    if len(city) != saved_rows or (city and len(city[0]) != saved_cols):
+        city = [[' '] * saved_cols for _ in range(saved_rows)]
+
     return True, "Arcade game loaded!"
 
 
@@ -63,8 +78,15 @@ def reset():
     coin_warning_shown = False
     coin_warning_popup_active = False
     coin_warning_sidebar_active = False
+    save_popup_active = False
+    save_popup_ok = False
+    save_popup_msg = ""
     new_bldg_pair(['R', 'I', 'C', 'O', '*'])
 
+# ── Murray — Random building pair offered to player each turn ─────────────────
+# Picks two different buildings at random from the pool and assigns them to
+# bldg1 and bldg2. The while loop ensures the two options are never identical,
+# so the player always has a meaningful choice.
 def new_bldg_pair(pool):
     global bldg1, bldg2
     bldg1 = random.choice(pool)
@@ -181,6 +203,7 @@ def update(events, mouse_pos, assets):
     global selected_bldg, placement_mode, demolish_mode
     global bldg1, bldg2, city, coin_warning_shown
     global coin_warning_popup_active, coin_warning_sidebar_active
+    global save_popup_active, save_popup_ok, save_popup_msg
     next_state = "arcade"
     
     screen = assets["screen"]
@@ -208,6 +231,10 @@ def update(events, mouse_pos, assets):
 
     utils["draw_sidebar_panel"]()
 
+    # ── Murray — Sidebar: two randomly offered buildings for player to choose ──
+    # Renders btn1 and btn2 using the current bldg1/bldg2 values. The player
+    # clicks (or presses 1/2) to select one, which enters placement mode so
+    # they can click a valid grid cell to place it.
     SY = layout["HEADER_H"] + 14
     screen.blit(fonts["small"].render("SELECT A BUILDING:", True, colors["CYBER_CYAN"]), (10, SY))
     SY += 24
@@ -310,8 +337,42 @@ def update(events, mouse_pos, assets):
         understood_r = pygame.Rect(box_rect.centerx - 90, box_rect.bottom - 55, 180, 42)
         utils["draw_btn"](understood_r, "UNDERSTOOD", fonts["small"], mouse_pos, color=colors["GOLD"])
 
+    # ── Murray — Save result popup ─────────────────────────────────────────────
+    # Blocks all input until dismissed. Shows green border on success,
+    # red border on failure, with the exact save/error message.
+    save_ok_r = None
+    if save_popup_active:
+        dim = pygame.Surface((assets["SCREEN_W"], assets["SCREEN_H"]), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 165))
+        screen.blit(dim, (0, 0))
+
+        box_w, box_h = 480, 200
+        box_rect = pygame.Rect((assets["SCREEN_W"] - box_w) // 2,
+                               (assets["SCREEN_H"] - box_h) // 2, box_w, box_h)
+        border_col = (0, 200, 100) if save_popup_ok else (220, 50, 50)
+        title_col  = (0, 220, 120) if save_popup_ok else (255, 80, 80)
+        title_text = "GAME SAVED" if save_popup_ok else "SAVE FAILED"
+
+        pygame.draw.rect(screen, (20, 5, 35), box_rect, border_radius=10)
+        pygame.draw.rect(screen, border_col, box_rect, 3, border_radius=10)
+
+        utils["draw_text_c"](title_text, fonts["medium"], title_col,
+                             box_rect.centerx, box_rect.y + 50)
+        utils["draw_text_c"](save_popup_msg, fonts["small"], (220, 220, 220),
+                             box_rect.centerx, box_rect.y + 100)
+
+        save_ok_r = pygame.Rect(box_rect.centerx - 80, box_rect.bottom - 58, 160, 40)
+        utils["draw_btn"](save_ok_r, "OK", fonts["medium"], mouse_pos, color=border_col)
+
     # Event Interface Router
     for event in events:
+        if save_popup_active:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and save_ok_r and save_ok_r.collidepoint(mouse_pos):
+                save_popup_active = False
+            elif event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE):
+                save_popup_active = False
+            continue
+
         if coin_warning_popup_active:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and understood_r and understood_r.collidepoint(mouse_pos):
                 coin_warning_popup_active = False
@@ -328,7 +389,9 @@ def update(events, mouse_pos, assets):
                     coins, turn, score, city, bldg1, bldg2,
                     coin_warning_shown, coin_warning_sidebar_active
                 )
-                assets["system"]["set_msg"](msg)
+                save_popup_ok = ok
+                save_popup_msg = msg
+                save_popup_active = True
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if btn1.collidepoint(mouse_pos): selected_bldg = bldg1; placement_mode = True; demolish_mode = False
             elif btn2.collidepoint(mouse_pos): selected_bldg = bldg2; placement_mode = True; demolish_mode = False
@@ -337,7 +400,9 @@ def update(events, mouse_pos, assets):
                     coins, turn, score, city, bldg1, bldg2,
                     coin_warning_shown, coin_warning_sidebar_active
                 )
-                assets["system"]["set_msg"](msg)
+                save_popup_ok = ok
+                save_popup_msg = msg
+                save_popup_active = True
             elif cancel_r.collidepoint(mouse_pos): selected_bldg = None; placement_mode = False; demolish_mode = False
             elif menu_r.collidepoint(mouse_pos): next_state = "main_menu"
             elif demo_r.collidepoint(mouse_pos):
@@ -372,7 +437,12 @@ def update(events, mouse_pos, assets):
                         else:
                             assets["system"]["set_msg"]("Cell is already empty!")
                     
-                    # --- Regular Placement Action Segment ---
+                    # ── Murray — Building placement: place selected building, end game if board full ──
+                    # Places the chosen building on the clicked cell, recalculates
+                    # the score, deducts 1 coin and adds any income earned this turn,
+                    # then generates a fresh pair of buildings for the next turn.
+                    # If every cell is now occupied the game ends so the player
+                    # can see their final total score.
                     elif placement_mode:
                         ok, reason = is_valid_placement(r, c, const["ARCADE_ROWS"], const["ARCADE_COLS"])
                         if ok:

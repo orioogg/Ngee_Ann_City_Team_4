@@ -311,45 +311,82 @@ def update(events, mouse_pos, assets):
     layout = assets["layout"]
     const = assets["constants"]
 
-    screen.fill((5, 14, 8))
-    utils["draw_header"]("FREE PLAY MODE", t_color=colors["GREEN_NEON"], bg=(0, 24, 8), line_color=colors["GREEN_NEON"])
-    
-    # --- TOP RIGHT STATS PLACEMENT ---
+    screen.fill((8, 3, 18))
+    utils["draw_header"]("FREE PLAY MODE")
+
     # Recalculate score dynamically on each frame render
     free_score = calculate_score(free_city)
 
-    s_t = fonts["small"].render(f"TURN: {free_turn}", True, (255, 255, 255))
+    # HUD: score left, profit + turn right — matches arcade layout
+    s_score = fonts["medium"].render(f"SCORE: {free_score}", True, colors["GREEN_NEON"])
     p_color = colors["GREEN_NEON"] if free_profit >= 0 else colors["RED"]
-    s_p = fonts["small"].render(f"PROFIT: {free_profit:+d}", True, p_color)
-    s_s = fonts["small"].render(f"SCORE: {free_score}", True, colors["GOLD"])
-    
-    top_right_x = assets["SCREEN_W"] - max(s_t.get_width(), s_p.get_width(), s_s.get_width()) - 20
-    screen.blit(s_t, (top_right_x, 8))
-    screen.blit(s_p, (top_right_x, 26))
-    screen.blit(s_s, (top_right_x, 44))
+    s_p = fonts["medium"].render(f"PROFIT: {free_profit:+d}", True, p_color)
+    s_t = fonts["medium"].render(f"TURN: {free_turn}", True, (255, 255, 255))
 
-    utils["draw_sidebar_panel"](bg=(0, 12, 5), line=colors["GREEN_NEON"])
+    margin = 20
+    gap = 24
+    t_x = assets["SCREEN_W"] - margin - s_t.get_width()
+    p_x = t_x - gap - s_p.get_width()
 
+    screen.blit(s_p, (p_x, layout["HEADER_H"] // 2 - s_p.get_height() // 2))
+    screen.blit(s_t, (t_x, layout["HEADER_H"] // 2 - s_t.get_height() // 2))
+    screen.blit(s_score, (20, layout["HEADER_H"] // 2 - s_score.get_height() // 2))
+
+    utils["draw_sidebar_panel"]()
+
+    # Sidebar: all 5 building buttons with key labels — matches arcade style
     SY = layout["HEADER_H"] + 14
-    screen.blit(fonts["small"].render("BUILD OPTIONS:", True, colors["GREEN_NEON"]), (10, SY))
+    screen.blit(fonts["small"].render("SELECT A BUILDING:", True, colors["CYBER_CYAN"]), (10, SY))
     SY += 24
 
     bldg_btns = {}
-    for b in const["BUILDINGS"]:
-        r = pygame.Rect(10, SY, layout["SIDEBAR_W"] - 20, 38)
-        bc = colors["BUILDING_COLORS"][b]
+    btn_h = 44
+    for idx, b in enumerate(const["BUILDINGS"]):
+        key_label = str(idx + 1)
+        btn_r = pygame.Rect(10, SY, layout["SIDEBAR_W"] - 20, btn_h)
         active = (selected_bldg == b)
-        hover = r.collidepoint(mouse_pos) or active
-        pygame.draw.rect(screen, bc if hover else (28, 28, 28), r, border_radius=4)
-        pygame.draw.rect(screen, bc, r, 2, border_radius=4)
-        txt = fonts["medium"].render(f" {b} ", True, (10, 10, 10) if hover else bc)
-        screen.blit(txt, txt.get_rect(center=r.center))
-        bldg_btns[b] = r
-        SY += 44
+        hover = btn_r.collidepoint(mouse_pos) or active
+        bc = colors["BUILDING_COLORS"].get(b, (255, 255, 255))
+        pygame.draw.rect(screen, colors["CYBER_CYAN"] if hover else (40, 12, 72), btn_r, border_radius=4)
+        pygame.draw.rect(screen, bc, btn_r, 2, border_radius=4)
+        utils["draw_text_c"](f"[{key_label}]  {b}", fonts["large"], (10, 10, 10) if hover else (255, 255, 255), btn_r.centerx, btn_r.centery)
+        bldg_btns[b] = btn_r
+        SY += btn_h + 6
 
-    for idx, b_char in enumerate(['R', 'I', 'C', 'O', '*']):
-        lbl_h = fonts["tiny"].render(f"Press [{b_char}]", True, (120, 150, 130))
-        screen.blit(lbl_h, (layout["SIDEBAR_W"] - 95, layout["HEADER_H"] + 48 + (idx * 44)))
+    SY += 6
+    if placement_mode and selected_bldg:
+        utils["draw_text_c"](f"Placing: {selected_bldg}", fonts["small"], colors["GREEN_NEON"], layout["SIDEBAR_W"] // 2, SY)
+        utils["draw_text_c"]("Click the grid to place", fonts["tiny"], colors["GREEN_NEON"], layout["SIDEBAR_W"] // 2, SY + 18)
+    elif selected_grid_cell is not None:
+        utils["draw_text_c"]("Building selected", fonts["small"], (255, 100, 100), layout["SIDEBAR_W"] // 2, SY)
+        utils["draw_text_c"]("Press [D] to demolish", fonts["tiny"], (255, 100, 100), layout["SIDEBAR_W"] // 2, SY + 18)
+    elif selected_bldg:
+        utils["draw_text_c"](f"Selected: {selected_bldg}", fonts["small"], colors["GOLD"], layout["SIDEBAR_W"] // 2, SY)
+    else:
+        utils["draw_text_c"]("Pick a building above", fonts["tiny"], (120, 120, 155), layout["SIDEBAR_W"] // 2, SY)
+
+    utils["draw_legend"](10, SY + 42)
+
+    # Sidebar message — arcade-style inline coloured text
+    msg, m_timer = assets["system"]["get_msg"]()
+    if m_timer > 0:
+        is_err = any(w in msg for w in ("occupied", "select", "Please", "Invalid"))
+        col = (255, 80, 80) if is_err else colors["GREEN_NEON"]
+        msg_y = SY + 42 + 14 + 5 * 13 + 12
+        max_w = layout["SIDEBAR_W"] - 16
+        words, lines, cur = msg.split(), [], ""
+        for w in words:
+            trial = f"{cur} {w}".strip()
+            if fonts["small"].size(trial)[0] <= max_w:
+                cur = trial
+            else:
+                lines.append(cur)
+                cur = w
+        if cur:
+            lines.append(cur)
+        for i, line in enumerate(lines):
+            s_msg = fonts["small"].render(line, True, col)
+            screen.blit(s_msg, (8, msg_y + i * 18))
 
     if loss_warning_sidebar_active:
         warn_box = pygame.Rect(10, assets["SCREEN_H"] - 214, layout["SIDEBAR_W"] - 20, 44)
@@ -363,14 +400,14 @@ def update(events, mouse_pos, assets):
         utils["draw_text_c"]("WARNING: LOSS STREAK", fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 14)
         utils["draw_text_c"](line2, fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 30)
 
-    end_turn_r = pygame.Rect(10, assets["SCREEN_H"] - 165, layout["SIDEBAR_W"] - 20, 42)
-    utils["draw_btn"](end_turn_r, "[E]  END TURN", fonts["medium"], mouse_pos, color=colors["GOLD"])
+    end_turn_r = pygame.Rect(10, assets["SCREEN_H"] - 165, layout["SIDEBAR_W"] - 20, 38)
+    utils["draw_btn"](end_turn_r, "[E]  END TURN", fonts["small"], mouse_pos, color=colors["GOLD"])
 
-    demo_r = pygame.Rect(10, assets["SCREEN_H"] - 115, layout["SIDEBAR_W"] - 20, 35)
+    demo_r = pygame.Rect(10, assets["SCREEN_H"] - 118, layout["SIDEBAR_W"] - 20, 40)
     utils["draw_btn"](demo_r, "[D]  DEMOLISH", fonts["small"], mouse_pos, color=(180, 60, 60))
 
     menu_r = pygame.Rect(10, assets["SCREEN_H"] - 68, layout["SIDEBAR_W"] - 20, 40)
-    utils["draw_btn"](menu_r, "[Q]  MAIN MENU", fonts["small"], mouse_pos, color=colors["GREEN_NEON"])
+    utils["draw_btn"](menu_r, "[Q]  MAIN MENU", fonts["small"], mouse_pos)
 
     draw_grid(screen, free_city, const["FREE_ROWS"], const["FREE_COLS"],
               layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"], mouse_pos, colors, fonts, 
@@ -435,7 +472,7 @@ def update(events, mouse_pos, assets):
         if loss_warning_popup_active:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and loss_understood_r and loss_understood_r.collidepoint(mouse_pos):
                 loss_warning_popup_active = False
-            continue  
+            continue
 
         if show_fp_overlay and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             show_fp_overlay = False
@@ -444,70 +481,46 @@ def update(events, mouse_pos, assets):
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_q:
-                reset(assets)  
-                pygame.event.clear()  
+                reset(assets)
+                pygame.event.clear()
                 return "main_menu", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
-            elif event.key == pygame.K_r: 
-                selected_bldg = 'R'
-                placement_mode = True
-                selected_grid_cell = None
-            elif event.key == pygame.K_i: 
-                selected_bldg = 'I'
-                placement_mode = True
-                selected_grid_cell = None
-            elif event.key == pygame.K_c: 
-                selected_bldg = 'C'
-                placement_mode = True
-                selected_grid_cell = None
-            elif event.key == pygame.K_o: 
-                selected_bldg = 'O'
-                placement_mode = True
-                selected_grid_cell = None
-            elif event.key == pygame.K_8 or event.key == pygame.K_KP_MULTIPLY: 
-                selected_bldg = '*'
-                placement_mode = True
-                selected_grid_cell = None
-            elif event.key == pygame.K_ESCAPE: 
-                selected_bldg = None
-                placement_mode = False
-            
+            elif event.key == pygame.K_1: selected_bldg = 'R'; placement_mode = True; selected_grid_cell = None
+            elif event.key == pygame.K_2: selected_bldg = 'I'; placement_mode = True; selected_grid_cell = None
+            elif event.key == pygame.K_3: selected_bldg = 'C'; placement_mode = True; selected_grid_cell = None
+            elif event.key == pygame.K_4: selected_bldg = 'O'; placement_mode = True; selected_grid_cell = None
+            elif event.key == pygame.K_5: selected_bldg = '*'; placement_mode = True; selected_grid_cell = None
+            elif event.key == pygame.K_ESCAPE: selected_bldg = None; placement_mode = False
             elif event.key == pygame.K_e:
                 free_turn += 1
                 if calculate_profit(assets):
                     reset(assets)
                     pygame.event.clear()
                     return "game_over", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
-                selected_bldg = None
-                placement_mode = False
-                selected_grid_cell = None
-                
+                selected_bldg = None; placement_mode = False; selected_grid_cell = None
             elif event.key == pygame.K_d:
                 if selected_grid_cell is not None:
                     dr, dc = selected_grid_cell
                     removed_type = free_city[dr][dc]
                     free_city[dr][dc] = ' '
-                    free_profit -= 1  
-                    assets["system"]["set_msg"](f"Demolished {removed_type} (-1 coin). Click 'End Turn' to update financials.")
+                    free_profit -= 1
+                    assets["system"]["set_msg"](f"Demolished {removed_type}. End turn to update finances.")
                     selected_grid_cell = None
                 else:
                     assets["system"]["set_msg"]("Please select a building to demolish")
 
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if menu_r.collidepoint(mouse_pos):
-                reset(assets)  
-                pygame.event.clear()  
+                reset(assets)
+                pygame.event.clear()
                 return "main_menu", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
 
             if end_turn_r.collidepoint(mouse_pos):
                 free_turn += 1
                 if calculate_profit(assets):
-                    reset(assets)  
+                    reset(assets)
                     pygame.event.clear()
                     return "game_over", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
-
-                selected_bldg = None
-                placement_mode = False
-                selected_grid_cell = None
+                selected_bldg = None; placement_mode = False; selected_grid_cell = None
                 continue
 
             if demo_r.collidepoint(mouse_pos):
@@ -515,8 +528,8 @@ def update(events, mouse_pos, assets):
                     dr, dc = selected_grid_cell
                     removed_type = free_city[dr][dc]
                     free_city[dr][dc] = ' '
-                    free_profit -= 1  
-                    assets["system"]["set_msg"](f"Demolished {removed_type} (-1 coin). Click 'End Turn' to update financials.")
+                    free_profit -= 1
+                    assets["system"]["set_msg"](f"Demolished {removed_type}. End turn to update finances.")
                     selected_grid_cell = None
                 else:
                     assets["system"]["set_msg"]("Please select a building to demolish")
@@ -525,9 +538,7 @@ def update(events, mouse_pos, assets):
             btn_clicked = False
             for b_key, b_rect in bldg_btns.items():
                 if b_rect.collidepoint(mouse_pos):
-                    selected_bldg = b_key
-                    placement_mode = True
-                    selected_grid_cell = None
+                    selected_bldg = b_key; placement_mode = True; selected_grid_cell = None
                     btn_clicked = True
                     break
 
@@ -539,33 +550,14 @@ def update(events, mouse_pos, assets):
                         if free_city[r][c] == ' ':
                             free_city[r][c] = selected_bldg
                             check_and_expand_grid(r, c, const, layout, assets)
-                            selected_bldg = None
-                            placement_mode = False
+                            selected_bldg = None; placement_mode = False
                         else:
                             assets["system"]["set_msg"]("Cell is already occupied.")
                     else:
                         if free_city[r][c] != ' ':
                             selected_grid_cell = (r, c)
-                            assets["system"]["set_msg"](f"Selected {free_city[r][c]} cell. Ready to Demolish.")
+                            assets["system"]["set_msg"](f"Selected {free_city[r][c]} cell. Press [D] to demolish.")
                         else:
                             selected_grid_cell = None
-
-    msg, m_timer = assets["system"]["get_msg"]()
-    if m_timer > 0:
-        s_msg = fonts["small"].render(msg, True, (10, 10, 10))
-        
-        pad_x, pad_y = 12, 8
-        box_w = s_msg.get_width() + (pad_x * 2)
-        box_h = s_msg.get_height() + (pad_y * 2)
-        
-        box_x = layout["FREE_GRID_X"]
-        box_y = layout["FREE_GRID_Y"] + (const["FREE_ROWS"] * layout["FREE_CELL"]) + 15
-        
-        msg_box_rect = pygame.Rect(box_x, box_y, box_w, box_h)
-        
-        pygame.draw.rect(screen, (255, 255, 255), msg_box_rect, border_radius=2)
-        pygame.draw.rect(screen, (0, 0, 0), msg_box_rect, 1, border_radius=2)
-        
-        screen.blit(s_msg, (box_x + pad_x, box_y + pad_y))
 
     return next_state, {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}

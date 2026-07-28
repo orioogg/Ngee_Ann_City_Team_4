@@ -1,4 +1,5 @@
 # Run this code to start the game
+# Author: Jun Wei
 import pygame
 import random
 import sys
@@ -8,6 +9,8 @@ import main_menu
 import arcade_mode
 import free_play_mode
 import load_game
+import leaderboard
+import save_manager
 
 pygame.init()
 
@@ -199,7 +202,12 @@ state = "main_menu"
 current_buttons = {}
 message = ""
 message_timer = 0
-final_score = 0  # Stores final score for Game Over screen
+final_score = 0       # Stores final score for Game Over screen
+#── Jun Wei ────────────────────────────────────────────────────────
+last_mode    = None   # "arcade" or "freeplay" — set when a game starts
+score_saved  = False  # Guard: only add to leaderboard once per game-over
+achieved_rank = None  # Rank achieved on the leaderboard (persists across frames)
+player_name  = ""     # Name being typed on the name-entry screen
 
 def set_msg(text):
     global message, message_timer
@@ -228,41 +236,170 @@ while True:
     # Main State Engine Router
     if state == "main_menu":
         state, current_buttons = main_menu.update(events, mouse_pos, assets)
+        # Track which game mode the player is about to enter
+        if state == "arcade":
+            last_mode    = "arcade"
+            score_saved  = False
+            achieved_rank = None
+            player_name  = ""
+        elif state == "freeplay":
+            last_mode    = "freeplay"
+            score_saved  = False
+            achieved_rank = None
+            player_name  = ""
     elif state == "arcade":
         state, current_buttons = arcade_mode.update(events, mouse_pos, assets)
         if 'score' in current_buttons:
             final_score = current_buttons['score']
+        # Keep last_mode in sync when resuming a loaded save
+        if last_mode != "arcade":
+            last_mode = "arcade"
     elif state == "freeplay":
         state, current_buttons = free_play_mode.update(events, mouse_pos, assets)
         if 'score' in current_buttons:
             final_score = current_buttons['score']
     elif state == "load_game":
+        prev = "load_game"
         state, current_buttons = load_game.update(events, mouse_pos, assets)
+        # A loaded arcade save counts as arcade mode
+        if prev == "load_game" and state == "arcade":
+            last_mode   = "arcade"
+            score_saved = False
     elif state == "high_scores":
-        draw_bg_skyline()
-        draw_text_c("HIGH SCORES", assets["fonts"]["large"], assets["colors"]["CYBER_CYAN"], SCREEN_W // 2, 240)
-        draw_text_c("UNDER DEVELOPMENT", assets["fonts"]["medium"], (255, 255, 255), SCREEN_W // 2, 296)
-        back_r = pygame.Rect(SCREEN_W // 2 - 165, 372, 330, 50)
-        draw_btn(back_r, "BACK TO MAIN MENU", assets["fonts"]["medium"], mouse_pos)
-        current_buttons = {'back': back_r}
-        for event in events:
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if back_r.collidepoint(mouse_pos):
-                    state = "main_menu"
+        state, current_buttons = leaderboard.update(events, mouse_pos, assets)
     elif state == "game_over":
         draw_bg_skyline()
-        # Header
-        draw_text_c("GAME OVER", assets["fonts"]["title"], assets["colors"]["RED"], SCREEN_W // 2, 230)
-        # Display Final Score
-        draw_text_c(f"FINAL SCORE: {final_score}", assets["fonts"]["medium"], assets["colors"]["GOLD"], SCREEN_W // 2, 310)
-        
-        back_r = pygame.Rect(SCREEN_W // 2 - 165, 380, 330, 50)
+        draw_text_c("GAME OVER", assets["fonts"]["title"], assets["colors"]["RED"], SCREEN_W // 2, 210)
+        draw_text_c(f"FINAL SCORE: {final_score}", assets["fonts"]["medium"], assets["colors"]["GOLD"], SCREEN_W // 2, 295)
+
+        hs_r   = pygame.Rect(SCREEN_W // 2 - 165, 370, 330, 46)
+        back_r = pygame.Rect(SCREEN_W // 2 - 165, 428, 330, 46)
+        draw_btn(hs_r,   "VIEW HIGH SCORES", assets["fonts"]["medium"], mouse_pos,
+                 color=assets["colors"]["CYBER_CYAN"])
         draw_btn(back_r, "MAIN MENU", assets["fonts"]["medium"], mouse_pos)
-        current_buttons = {'back': back_r}
+        current_buttons = {'highscores': hs_r, 'back': back_r}
+
+        # Prompt to save score
+        prompt = assets["fonts"]["small"].render(
+            "Press ENTER or click VIEW HIGH SCORES to save your score", True, (255, 255, 255))
+        screen.blit(prompt, prompt.get_rect(center=(SCREEN_W // 2, 336)))
+
         for event in events:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if back_r.collidepoint(mouse_pos):
+                if hs_r.collidepoint(mouse_pos):
+                    player_name   = ""
+                    score_saved   = False
+                    achieved_rank = None
+                    state = "name_entry"
+                elif back_r.collidepoint(mouse_pos):
                     state = "main_menu"
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    # Enter key — go to name entry
+                    player_name  = ""
+                    score_saved  = False
+                    achieved_rank = None
+                    state = "name_entry"
+
+    elif state == "name_entry":
+        # ── Name entry screen (Jun Wei) ───────────────────────────────────────
+        draw_bg_skyline()
+        ov2 = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        ov2.fill((8, 15, 40, 160))
+        screen.blit(ov2, (0, 0))
+
+        draw_text_c("GAME OVER", assets["fonts"]["title"], assets["colors"]["RED"], SCREEN_W // 2, 140)
+        draw_text_c(f"FINAL SCORE: {final_score}", assets["fonts"]["medium"],
+                    assets["colors"]["GOLD"], SCREEN_W // 2, 210)
+        draw_text_c("Enter your name for the leaderboard:",
+                    assets["fonts"]["small"], (200, 200, 200), SCREEN_W // 2, 268)
+
+        # Text input box
+        box_r = pygame.Rect(SCREEN_W // 2 - 180, 292, 360, 46)
+        pygame.draw.rect(screen, (30, 10, 55), box_r, border_radius=6)
+        pygame.draw.rect(screen, assets["colors"]["CYBER_CYAN"], box_r, 2, border_radius=6)
+        name_surf = assets["fonts"]["medium"].render(player_name + "|", True, (255, 255, 255))
+        screen.blit(name_surf, name_surf.get_rect(midleft=(box_r.x + 12, box_r.centery)))
+
+        draw_text_c("(max 16 characters)", assets["fonts"]["tiny"],
+                    (80, 80, 110), SCREEN_W // 2, 348)
+
+        confirm_r = pygame.Rect(SCREEN_W // 2 - 165, 372, 330, 46)
+        skip_r    = pygame.Rect(SCREEN_W // 2 - 165, 428, 330, 46)
+        draw_btn(confirm_r, "CONFIRM", assets["fonts"]["medium"], mouse_pos,
+                 color=assets["colors"]["CYBER_CYAN"])
+        draw_btn(skip_r,    "SKIP (Anonymous)", assets["fonts"]["medium"], mouse_pos)
+
+        hint = assets["fonts"]["tiny"].render(
+            "[ENTER] Confirm   |   [ESC] Skip", True, (80, 80, 110))
+        screen.blit(hint, hint.get_rect(center=(SCREEN_W // 2, SCREEN_H - 22)))
+
+        def _submit_name(entered_name):
+            return (
+                save_manager.add_leaderboard_entry(last_mode, final_score, entered_name.strip() or "Anonymous"),
+                True,   # score_saved
+                "",     # reset player_name
+                "rank_result"
+            )
+
+        for event in events:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    achieved_rank, score_saved, player_name, state = _submit_name(player_name)
+                elif event.key == pygame.K_ESCAPE:
+                    achieved_rank, score_saved, player_name, state = _submit_name("")
+                elif event.key == pygame.K_BACKSPACE:
+                    player_name = player_name[:-1]
+                else:
+                    ch = event.unicode
+                    if ch.isprintable() and len(player_name) < 16:
+                        player_name += ch
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if confirm_r.collidepoint(mouse_pos):
+                    achieved_rank, score_saved, player_name, state = _submit_name(player_name)
+                elif skip_r.collidepoint(mouse_pos):
+                    achieved_rank, score_saved, player_name, state = _submit_name("")
+
+    elif state == "rank_result":
+        # ── Show rank achievement, then let player navigate (Jun Wei) ─────────
+        draw_bg_skyline()
+        ov3 = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        ov3.fill((8, 15, 40, 160))
+        screen.blit(ov3, (0, 0))
+
+        draw_text_c("GAME OVER", assets["fonts"]["title"], assets["colors"]["RED"], SCREEN_W // 2, 170)
+        draw_text_c(f"FINAL SCORE: {final_score}", assets["fonts"]["medium"],
+                    assets["colors"]["GOLD"], SCREEN_W // 2, 248)
+
+        if achieved_rank is not None:
+            rank_col = assets["colors"]["GOLD"] if achieved_rank <= 3 else assets["colors"]["CYBER_CYAN"]
+            draw_text_c(f"YOU RANKED  #{achieved_rank}  ON THE LEADERBOARD!",
+                        assets["fonts"]["small"], rank_col, SCREEN_W // 2, 300)
+        else:
+            draw_text_c("Score not in top 10 — keep practising!",
+                        assets["fonts"]["small"], (150, 150, 170), SCREEN_W // 2, 300)
+
+        hs_r   = pygame.Rect(SCREEN_W // 2 - 165, 348, 330, 46)
+        back_r = pygame.Rect(SCREEN_W // 2 - 165, 406, 330, 46)
+        draw_btn(hs_r,   "VIEW HIGH SCORES", assets["fonts"]["medium"], mouse_pos,
+                 color=assets["colors"]["CYBER_CYAN"])
+        draw_btn(back_r, "MAIN MENU", assets["fonts"]["medium"], mouse_pos)
+
+        hint2 = assets["fonts"]["tiny"].render(
+            "Press any key to return to main menu", True, (80, 80, 110))
+        screen.blit(hint2, hint2.get_rect(center=(SCREEN_W // 2, SCREEN_H - 22)))
+
+        current_buttons = {'highscores': hs_r, 'back': back_r}
+
+        for event in events:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if hs_r.collidepoint(mouse_pos):
+                    leaderboard._active_tab = last_mode if last_mode else "arcade"
+                    state = "high_scores"
+                elif back_r.collidepoint(mouse_pos):
+                    state = "main_menu"
+            elif event.type == pygame.KEYDOWN:
+                state = "main_menu"
 
     pygame.display.flip()
     clock.tick(60)

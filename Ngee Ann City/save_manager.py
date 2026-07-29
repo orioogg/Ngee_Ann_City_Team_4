@@ -18,6 +18,8 @@ _DIR = os.path.dirname(os.path.abspath(__file__))
 ARCADE_SAVE_PATH    = os.path.join(_DIR, "arcade_save.json")
 LEADERBOARD_PATH    = os.path.join(_DIR, "leaderboard.json")
 
+# Janice
+FREEPLAY_SAVE_PATH = os.path.join(_DIR, "freeplay_save.json")
 # Maximum entries kept per mode
 LEADERBOARD_LIMIT = 10
 
@@ -71,6 +73,44 @@ def arcade_save_info():
         return None
     return f"Turn {data['turn']}  |  Score {data['score']}  |  Coins {data['coins']}"
 
+# Features for Free Play mode (Janice)
+def save_freeplay(turn, profit, score, city, consecutive_losses, loss_warning_shown, loss_warning_sidebar_active):
+    """Persist the current Free Play game state to disk."""
+    data = {
+        "turn": turn,
+        "profit": profit,
+        "score": score,
+        "city": city,
+        "rows": len(city),
+        "cols": len(city[0]) if city else 0,
+        "consecutive_losses": consecutive_losses,
+        "loss_warning_shown": loss_warning_shown,
+        "loss_warning_sidebar_active": loss_warning_sidebar_active,
+    }
+    try:
+        with open(FREEPLAY_SAVE_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        return True, "Free Play game saved!"
+    except Exception as e:
+        return False, f"Save failed: {e}"
+
+
+def load_freeplay():
+    if not os.path.exists(FREEPLAY_SAVE_PATH):
+        return None, "No Free Play save file found."
+    try:
+        with open(FREEPLAY_SAVE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data, None
+    except Exception as e:
+        return None, f"Load failed: {e}"
+
+# displays information about the saved game
+def freeplay_save_info():
+    data, _ = load_freeplay()
+    if data is None:
+        return None
+    return f"Turn {data['turn']}  |  Score {data['score']}  |  Profit {data['profit']:+d}"
 
 # ── Leaderboard helpers Jun Wei ───────────────────────────────────────────────────────
 

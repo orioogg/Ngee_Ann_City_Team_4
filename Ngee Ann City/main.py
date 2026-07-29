@@ -262,9 +262,13 @@ while True:
         prev = "load_game"
         state, current_buttons = load_game.update(events, mouse_pos, assets)
         # A loaded arcade save counts as arcade mode
-        if prev == "load_game" and state == "arcade":
-            last_mode   = "arcade"
-            score_saved = False
+        if prev == "load_game":
+            if state == "arcade":
+                last_mode = "arcade"
+                score_saved = False
+            elif state == "freeplay":
+                last_mode = "freeplay"
+                score_saved = False
     elif state == "high_scores":
         state, current_buttons = leaderboard.update(events, mouse_pos, assets)
     elif state == "game_over":

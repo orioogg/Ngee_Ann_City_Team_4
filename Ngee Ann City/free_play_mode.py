@@ -1,4 +1,5 @@
 import pygame
+import save_manager
 
 # Domain runtime storage data scopes
 free_city = []
@@ -400,15 +401,18 @@ def update(events, mouse_pos, assets):
         utils["draw_text_c"]("WARNING: LOSS STREAK", fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 14)
         utils["draw_text_c"](line2, fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 30)
 
-    end_turn_r = pygame.Rect(10, assets["SCREEN_H"] - 165, layout["SIDEBAR_W"] - 20, 38)
-    utils["draw_btn"](end_turn_r, "[E]  END TURN", fonts["small"], mouse_pos, color=colors["GOLD"])
-
-    demo_r = pygame.Rect(10, assets["SCREEN_H"] - 118, layout["SIDEBAR_W"] - 20, 40)
-    utils["draw_btn"](demo_r, "[D]  DEMOLISH", fonts["small"], mouse_pos, color=(180, 60, 60))
-
-    menu_r = pygame.Rect(10, assets["SCREEN_H"] - 68, layout["SIDEBAR_W"] - 20, 40)
+    menu_r = pygame.Rect(10, assets["SCREEN_H"] - 55, layout["SIDEBAR_W"] - 20, 38)
     utils["draw_btn"](menu_r, "[Q]  MAIN MENU", fonts["small"], mouse_pos)
 
+    save_r = pygame.Rect(10, assets["SCREEN_H"] - 100, layout["SIDEBAR_W"] - 20, 38)
+    utils["draw_btn"](save_r, "[S]  SAVE GAME", fonts["small"], mouse_pos, color=colors["CYBER_CYAN"])
+
+    demo_r = pygame.Rect(10, assets["SCREEN_H"] - 145, layout["SIDEBAR_W"] - 20, 38)
+    utils["draw_btn"](demo_r, "[D]  DEMOLISH", fonts["small"], mouse_pos, color=(180, 60, 60))
+
+    end_turn_r = pygame.Rect(10, assets["SCREEN_H"] - 190, layout["SIDEBAR_W"] - 20, 38)
+    utils["draw_btn"](end_turn_r, "[E]  END TURN", fonts["small"], mouse_pos, color=colors["GOLD"])
+    
     draw_grid(screen, free_city, const["FREE_ROWS"], const["FREE_COLS"],
               layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"], mouse_pos, colors, fonts, 
               hoverable=placement_mode, target_cell=selected_grid_cell)
@@ -489,6 +493,9 @@ def update(events, mouse_pos, assets):
             elif event.key == pygame.K_3: selected_bldg = 'C'; placement_mode = True; selected_grid_cell = None
             elif event.key == pygame.K_4: selected_bldg = 'O'; placement_mode = True; selected_grid_cell = None
             elif event.key == pygame.K_5: selected_bldg = '*'; placement_mode = True; selected_grid_cell = None
+            elif event.key == pygame.K_s:
+                ok, msg = save_game()
+                assets["system"]["set_msg"](msg)
             elif event.key == pygame.K_ESCAPE: selected_bldg = None; placement_mode = False
             elif event.key == pygame.K_e:
                 free_turn += 1
@@ -513,6 +520,11 @@ def update(events, mouse_pos, assets):
                 reset(assets)
                 pygame.event.clear()
                 return "main_menu", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
+            
+            if save_r.collidepoint(mouse_pos):
+                ok, msg = save_game()
+                assets["system"]["set_msg"](msg)
+                continue
 
             if end_turn_r.collidepoint(mouse_pos):
                 free_turn += 1
@@ -561,3 +573,53 @@ def update(events, mouse_pos, assets):
                             selected_grid_cell = None
 
     return next_state, {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
+
+def save_game():
+    return save_manager.save_freeplay(
+        free_turn,
+        free_profit,
+        free_score,
+        free_city,
+        consecutive_losses,
+        loss_warning_shown,
+        loss_warning_sidebar_active
+    )
+
+def load_save(assets_ref=None):
+    global free_city, free_turn, free_profit, free_score, consecutive_losses
+    global loss_warning_shown, loss_warning_sidebar_active, show_fp_overlay
+
+    data, err = save_manager.load_freeplay()
+    if data is None:
+        return False, err
+
+    # Restore core variables
+    free_turn = data["turn"]
+    free_profit = data["profit"]
+    free_score = data["score"]
+    free_city = data["city"]
+    consecutive_losses = data.get("consecutive_losses", 0)
+    loss_warning_shown = data.get("loss_warning_shown", False)
+    loss_warning_sidebar_active = data.get("loss_warning_sidebar_active", False)
+    show_fp_overlay = False  # Hide overlay when resuming saved game
+
+    # Re-align grid metrics inside the assets dictionary
+    if assets_ref:
+        rows = data["rows"]
+        cols = data["cols"]
+        assets_ref["constants"]["FREE_ROWS"] = rows
+        assets_ref["constants"]["FREE_COLS"] = cols
+
+        # Dynamically scale cell size based on loaded map perimeter size
+        if rows == 5:
+            assets_ref["layout"]["FREE_CELL"] = 90
+        elif rows == 15:
+            assets_ref["layout"]["FREE_CELL"] = 32
+        elif rows == 25:
+            assets_ref["layout"]["FREE_CELL"] = 20
+
+        grid_w_px = cols * assets_ref["layout"]["FREE_CELL"]
+        canvas_avail_w = assets_ref["SCREEN_W"] - assets_ref["layout"]["SIDEBAR_W"]
+        assets_ref["layout"]["FREE_GRID_X"] = assets_ref["layout"]["SIDEBAR_W"] + (canvas_avail_w - grid_w_px) // 2
+
+    return True, "Free Play game loaded!"

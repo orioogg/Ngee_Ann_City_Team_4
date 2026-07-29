@@ -293,16 +293,17 @@ def update(events, mouse_pos, assets):
         utils["draw_text_c"]("WARNING:", fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 14)
         utils["draw_text_c"]("Only 5 coins left!", fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 30)
 
-    demo_r = pygame.Rect(10, assets["SCREEN_H"] - 165, layout["SIDEBAR_W"] - 20, 38)
-    demo_bg = (130, 40, 40) if demolish_mode else (180, 60, 60)
-    utils["draw_btn"](demo_r, "[D] DEMOLISH", fonts["small"], mouse_pos, color=demo_bg)
+    end_turn_r = pygame.Rect(10, assets["SCREEN_H"] - 190, layout["SIDEBAR_W"] - 20, 38)
+    demo_r     = pygame.Rect(10, assets["SCREEN_H"] - 145, layout["SIDEBAR_W"] - 20, 38)
+    save_r     = pygame.Rect(10, assets["SCREEN_H"] - 100, layout["SIDEBAR_W"] - 20, 38)
+    menu_r     = pygame.Rect(10, assets["SCREEN_H"] - 55,  layout["SIDEBAR_W"] - 20, 38)
 
-    save_r   = pygame.Rect(10, assets["SCREEN_H"] - 168, layout["SIDEBAR_W"] - 20, 40)
-    cancel_r = pygame.Rect(10, assets["SCREEN_H"] - 118, layout["SIDEBAR_W"] - 20, 40)
-    menu_r   = pygame.Rect(10, assets["SCREEN_H"] - 68,  layout["SIDEBAR_W"] - 20, 40)
-    utils["draw_btn"](save_r,   "[S]  SAVE GAME",  fonts["small"], mouse_pos, color=(0, 180, 100))
-    utils["draw_btn"](cancel_r, "[ESC]  CANCEL",   fonts["small"], mouse_pos)
-    utils["draw_btn"](menu_r,   "[Q]  MAIN MENU",  fonts["small"], mouse_pos)
+    demo_bg = (130, 40, 40) if demolish_mode else (180, 60, 60)
+    
+    utils["draw_btn"](end_turn_r, "[E]  END TURN",  fonts["small"], mouse_pos, color=colors["GOLD"])
+    utils["draw_btn"](demo_r,     "[D]  DEMOLISH",  fonts["small"], mouse_pos, color=demo_bg)
+    utils["draw_btn"](save_r,     "[S]  SAVE GAME",  fonts["small"], mouse_pos, color=colors["CYBER_CYAN"])
+    utils["draw_btn"](menu_r,     "[Q]  MAIN MENU",  fonts["small"], mouse_pos)
 
     # Core Matrix Grid Renderer 
     for r in range(const["ARCADE_ROWS"]):
@@ -395,6 +396,13 @@ def update(events, mouse_pos, assets):
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if btn1.collidepoint(mouse_pos): selected_bldg = bldg1; placement_mode = True; demolish_mode = False
             elif btn2.collidepoint(mouse_pos): selected_bldg = bldg2; placement_mode = True; demolish_mode = False
+            elif end_turn_r.collidepoint(mouse_pos):
+                turn += 1
+                income = calculate_total_city_coin_income()
+                coins += income
+                selected_bldg = None; placement_mode = False; demolish_mode = False
+                assets["system"]["set_msg"](f"Turn ended! (+{income} coin(s) earned)")
+                check_coin_warning(assets)
             elif save_r.collidepoint(mouse_pos):
                 ok, msg = save_manager.save_arcade(
                     coins, turn, score, city, bldg1, bldg2,
@@ -403,7 +411,6 @@ def update(events, mouse_pos, assets):
                 save_popup_ok = ok
                 save_popup_msg = msg
                 save_popup_active = True
-            elif cancel_r.collidepoint(mouse_pos): selected_bldg = None; placement_mode = False; demolish_mode = False
             elif menu_r.collidepoint(mouse_pos): next_state = "main_menu"
             elif demo_r.collidepoint(mouse_pos):
                 demolish_mode = not demolish_mode
@@ -473,9 +480,9 @@ def update(events, mouse_pos, assets):
     return next_state, {
         'btn1': btn1, 
         'btn2': btn2, 
-        'cancel': cancel_r, 
         'menu': menu_r, 
         'demolish': demo_r,
         'save': save_r,
+        'end_turn': end_turn_r,
         'score': score
     }

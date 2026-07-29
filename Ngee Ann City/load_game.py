@@ -1,10 +1,3 @@
-"""
-load_game.py
-Displays two save slot panels (Arcade and Free Play).
-- Arcade: fully functional save/load.
-- Free Play: visual placeholder only ("Coming Soon").
-"""
-
 import pygame
 import save_manager
 
@@ -13,7 +6,7 @@ def update(events, mouse_pos, assets):
     """
     Renders the load game screen and handles input.
     Returns (next_state, buttons_dict).
-    Possible next states: "load_game", "arcade", "main_menu"
+    Possible next states: "load_game", "arcade", "free play", "main_menu"
     """
     screen = assets["screen"]
     utils  = assets["utils"]
@@ -33,7 +26,7 @@ def update(events, mouse_pos, assets):
 
     # ── Save info ─────────────────────────────────────────────────────────────
     arcade_info = save_manager.arcade_save_info()  # str or None
-
+    freeplay_info = save_manager.freeplay_save_info()
     # ── Panel layout ──────────────────────────────────────────────────────────
     panel_w = 320
     panel_h = 260
@@ -79,24 +72,21 @@ def update(events, mouse_pos, assets):
         s = fonts["small"].render("LOAD ARCADE SAVE", True, (70, 70, 90))
         screen.blit(s, s.get_rect(center=btn_rect.center))
 
-    # ── Free Play panel (placeholder) ─────────────────────────────────────────
-    # Dimmed border to signal it's inactive
-    fp_color = (40, 100, 60)  # muted green
-    draw_panel_base(free_x, "FREE PLAY MODE", fp_color)
+    # ── Free Play panel ─────────────────────────────────────────
+    draw_panel_base(free_x, "FREE PLAY MODE", colors["GREEN_NEON"])
+    load_freeplay_btn = None
+    if freeplay_info:
+        parts = [p.strip() for p in freeplay_info.split("|")]
+        start_y = panel_y + 90
+        for i, part in enumerate(parts):
+            line = fonts["small"].render(part, True, (220, 220, 220))
+            screen.blit(line, line.get_rect(center=(free_x + panel_w // 2, start_y + i * 34)))
 
-    # "Coming Soon" badge
-    badge_surf = fonts["medium"].render("COMING SOON", True, (60, 130, 80))
-    screen.blit(badge_surf, badge_surf.get_rect(center=(free_x + panel_w // 2, panel_y + panel_h // 2 - 10)))
-
-    sub_surf = fonts["tiny"].render("Save/load not yet available", True, (60, 100, 70))
-    screen.blit(sub_surf, sub_surf.get_rect(center=(free_x + panel_w // 2, panel_y + panel_h // 2 + 22)))
-
-    # Greyed-out button (purely visual, not clickable)
-    fp_btn_rect = pygame.Rect(free_x + panel_w // 2 - 110, panel_y + panel_h - 58, 220, 44)
-    pygame.draw.rect(screen, (25, 40, 30), fp_btn_rect, border_radius=4)
-    pygame.draw.rect(screen, (40, 70, 50), fp_btn_rect, 2, border_radius=4)
-    fp_s = fonts["small"].render("LOAD FREE PLAY SAVE", True, (40, 70, 50))
-    screen.blit(fp_s, fp_s.get_rect(center=fp_btn_rect.center))
+        load_freeplay_btn = pygame.Rect(free_x + panel_w // 2 - 110, panel_y + panel_h - 58, 220, 44)
+        utils["draw_btn"](load_freeplay_btn, "LOAD FREE PLAY SAVE", fonts["small"], mouse_pos, color=colors["GREEN_NEON"])
+    else:
+        no_save = fonts["small"].render("No save file found.", True, (100, 100, 120))
+        screen.blit(no_save, no_save.get_rect(center=(free_x + panel_w // 2, panel_y + panel_h // 2)))
 
     # ── Back button ───────────────────────────────────────────────────────────
     back_r = pygame.Rect(SW // 2 - 165, panel_y + panel_h + 40, 330, 48)
@@ -132,6 +122,10 @@ def update(events, mouse_pos, assets):
                     next_state = "arcade"
                 else:
                     assets["system"]["set_msg"](msg)
-            # Free Play panel click is intentionally ignored (not implemented)
+            elif load_freeplay_btn and load_freeplay_btn.collidepoint(mouse_pos):
+                import free_play_mode
+                ok, msg = free_play_mode.load_save(assets)
+                if ok: next_state = "freeplay"
+                else: assets["system"]["set_msg"](msg)
 
-    return next_state, {'back': back_r, 'load_arcade': load_arcade_btn}
+    return next_state, {'back': back_r, 'load_arcade': load_arcade_btn,'load_freeplay': load_freeplay_btn}

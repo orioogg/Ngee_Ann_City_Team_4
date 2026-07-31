@@ -86,8 +86,8 @@ def update(events, mouse_pos, assets):
 
     # Column x-centres
     col_rank  = table_left + 36
-    col_name  = table_left + 220
-    col_score = table_left + table_w - 50
+    col_name  = table_left + 200
+    col_score = table_left + table_w - 70
 
     # Column headers
     hdr_y = table_top + 10
@@ -117,8 +117,8 @@ def update(events, mouse_pos, assets):
                 hi_surf.fill((*row_color, 55 if rank == 1 else 30))
                 screen.blit(hi_surf, hi)
 
-            # Rank
-            rank_s = fonts["medium"].render(f"#{rank}", True, row_color)
+            # Rank — format: "1." per acceptance criteria
+            rank_s = fonts["medium"].render(f"{rank}.", True, row_color)
             screen.blit(rank_s, rank_s.get_rect(center=(col_rank, row_y)))
 
             # Player name — truncate if too long
@@ -126,8 +126,8 @@ def update(events, mouse_pos, assets):
             name_s = fonts["medium"].render(display_name, True, row_color)
             screen.blit(name_s, name_s.get_rect(midleft=(table_left + 68, row_y)))
 
-            # Score — format: "xxx points"
-            score_s = fonts["medium"].render(f"{score_val} pts", True, row_color)
+            # Score — format: "xxx points" per acceptance criteria
+            score_s = fonts["medium"].render(f"{score_val} points", True, row_color)
             screen.blit(score_s, score_s.get_rect(midright=(table_left + table_w - 6, row_y)))
 
             # Divider

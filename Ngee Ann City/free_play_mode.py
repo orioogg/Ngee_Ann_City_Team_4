@@ -6,6 +6,8 @@ free_city = []
 free_turn = 1
 free_profit = 0
 free_score = 0
+free_upkeep = 0  # Tracks current turn upkeep
+demolition_penalty = 0  # Tracks demolition costs incurred during the current turn
 show_fp_overlay = False
 fp_overlay_timer = 0
 selected_bldg = None
@@ -17,7 +19,7 @@ loss_warning_popup_active = False  # True while the blocking centre-screen popup
 loss_warning_sidebar_active = False  # True while consecutive_losses >= 15; drives the sidebar reminder
 
 def init_mode(assets_ref):
-    global free_city, selected_grid_cell, free_score
+    global free_city, selected_grid_cell, free_score, demolition_penalty, free_upkeep
     c = assets_ref["constants"]
     # Initialize constants dynamically in case of full state reload
     c["FREE_ROWS"] = 5
@@ -25,14 +27,18 @@ def init_mode(assets_ref):
     free_city = [[' '] * c["FREE_COLS"] for _ in range(c["FREE_ROWS"])]
     selected_grid_cell = None
     free_score = 0
+    free_upkeep = 0
+    demolition_penalty = 0
 
 def reset(assets=None):
-    global free_city, free_turn, free_profit, free_score, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, selected_grid_cell, consecutive_losses
+    global free_city, free_turn, free_profit, free_score, free_upkeep, demolition_penalty, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, selected_grid_cell, consecutive_losses
     global loss_warning_shown, loss_warning_popup_active, loss_warning_sidebar_active
     free_city = [[' '] * 5 for _ in range(5)]
     free_turn = 1
     free_profit = 0
     free_score = 0
+    free_upkeep = 0
+    demolition_penalty = 0
     consecutive_losses = 0 
     loss_warning_shown = False
     loss_warning_popup_active = False
@@ -78,11 +84,10 @@ def get_adjacent_buildings(r, c, grid):
                 adj_coords.add((nr, nc))
 
     # 2. Road network connectivity
-    adjacent_road_tiles = []
-    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-        nr, nc = r + dr, c + dc
-        if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] == '*':
-            adjacent_road_tiles.append((nr, nc))
+    adjacent_road_tiles = [
+        (r + dr, c + dc) for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        if 0 <= r + dr < rows and 0 <= c + dc < cols and grid[r + dr][c + dc] == '*'
+    ]
 
     if adjacent_road_tiles:
         visited_roads = set()
@@ -118,6 +123,7 @@ def calculate_score(grid):
     total_score = 0
 
     total_industry = sum(cell == 'I' for row in grid for cell in row)
+    visited_roads_global = set()
 
     for r in range(rows):
         for c in range(cols):
@@ -129,17 +135,22 @@ def calculate_score(grid):
                 total_score += total_industry
 
             elif b_type == '*':
-                queue = [(r, c)]
-                visited = {(r, c)}
-                while queue:
-                    curr_r, curr_c = queue.pop(0)
-                    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                        nr, nc = curr_r + dr, curr_c + dc
-                        if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] == '*' and (nr, nc) not in visited:
-                            visited.add((nr, nc))
-                            queue.append((nr, nc))
-                row_connected_roads = sum(1 for (rr, rc) in visited if rr == r and rc != c)
-                total_score += row_connected_roads
+                if (r, c) not in visited_roads_global:
+                    queue = [(r, c)]
+                    road_cluster = {(r, c)}
+                    while queue:
+                        curr_r, curr_c = queue.pop(0)
+                        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            nr, nc = curr_r + dr, curr_c + dc
+                            if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] == '*' and (nr, nc) not in road_cluster:
+                                road_cluster.add((nr, nc))
+                                queue.append((nr, nc))
+                    
+                    visited_roads_global.update(road_cluster)
+                    
+                    for rr, rc in road_cluster:
+                        row_connected_roads = sum(1 for (xr, xc) in road_cluster if xr == rr and xc != rc)
+                        total_score += row_connected_roads
 
             else:
                 adj_coords = get_adjacent_buildings(r, c, grid)
@@ -163,14 +174,13 @@ def calculate_score(grid):
 
     return total_score
 
-def calculate_profit(assets=None):
-    global free_profit, free_city, consecutive_losses, free_score
-    global loss_warning_shown, loss_warning_popup_active, loss_warning_sidebar_active
+def get_current_upkeep_and_income():
+    """Helper to calculate active income and upkeep base amounts."""
     rows = len(free_city)
     cols = len(free_city[0])
     
     income = 0
-    upkeep = 0
+    upkeep = demolition_penalty
 
     visited_r = [[False] * cols for _ in range(rows)]
     
@@ -212,8 +222,20 @@ def calculate_profit(assets=None):
                 if not has_neighbor_road:
                     upkeep += 1
 
+    return income, upkeep
+
+def calculate_profit(assets=None):
+    global free_profit, free_city, consecutive_losses, free_score, demolition_penalty, free_upkeep
+    global loss_warning_shown, loss_warning_popup_active, loss_warning_sidebar_active
+
+    income, upkeep = get_current_upkeep_and_income()
+    free_upkeep = upkeep
+
     net_turn_profit = income - upkeep
-    free_profit = net_turn_profit  
+    
+    # Cumulative stacking profit update
+    free_profit += net_turn_profit  
+    demolition_penalty = 0  # Reset penalty count after turn recalculation
     free_score = calculate_score(free_city)
 
     if net_turn_profit < 0:
@@ -301,7 +323,7 @@ def draw_grid(screen, grid, rows, cols, gx, gy, cell_px, mouse_pos, colors, font
                 pygame.draw.rect(screen, colors.get("GREEN_NEON", (50, 255, 50)), cr, 2 if cell_px < 30 else 3)
 
 def update(events, mouse_pos, assets):
-    global free_turn, free_profit, free_score, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, free_city, selected_grid_cell
+    global free_turn, free_profit, free_score, free_upkeep, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, free_city, selected_grid_cell, demolition_penalty
     global consecutive_losses, loss_warning_shown, loss_warning_popup_active, loss_warning_sidebar_active
     next_state = "freeplay"
     
@@ -313,7 +335,13 @@ def update(events, mouse_pos, assets):
     const = assets["constants"]
 
     screen.fill((8, 3, 18))
-    utils["draw_header"]("FREE PLAY MODE")
+
+    # --- DEDICATED HEADER DRAWING ---
+    header_color = colors.get("NEON_GREEN", (57, 255, 20))
+    header_font = fonts.get("large", fonts.get("large", fonts["medium"]))
+    header_surf = header_font.render("FREE PLAY MODE", True, header_color)
+    header_rect = header_surf.get_rect(center=(assets["SCREEN_W"] // 2, layout["HEADER_H"] // 2))
+    screen.blit(header_surf, header_rect)
 
     # HUD: score left, profit + turn right — matches arcade layout
     s_score = fonts["medium"].render(f"SCORE: {free_score}", True, colors["GREEN_NEON"])
@@ -332,7 +360,7 @@ def update(events, mouse_pos, assets):
 
     utils["draw_sidebar_panel"]()
 
-    # Sidebar: all 5 building buttons with key labels — matches arcade style
+    # Sidebar: all 5 building buttons with key labels
     SY = layout["HEADER_H"] + 14
     screen.blit(fonts["small"].render("SELECT A BUILDING:", True, colors["CYBER_CYAN"]), (10, SY))
     SY += 24
@@ -415,10 +443,17 @@ def update(events, mouse_pos, assets):
               hoverable=placement_mode, target_cell=selected_grid_cell)
     utils["draw_grid_labels"](const["FREE_ROWS"], const["FREE_COLS"], layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"])
 
+    # Bottom status bar line
     loss_line_y = layout["FREE_GRID_Y"] + (const["FREE_ROWS"] * layout["FREE_CELL"]) + 58
     loss_line_color = (255, 80, 80) if consecutive_losses >= 15 else (255, 220, 60)
     loss_line = fonts["small"].render(f"Consecutive turns with losses: {consecutive_losses}", True, loss_line_color)
     screen.blit(loss_line, (layout["FREE_GRID_X"], loss_line_y))
+
+    # Real-time Upkeep calculation & display in bottom right (oval target)
+    _, active_upkeep = get_current_upkeep_and_income()
+    upkeep_surf = fonts["small"].render(f"UPKEEP: {active_upkeep}", True, (255, 90, 90) if active_upkeep > 0 else (200, 200, 200))
+    upkeep_x = assets["SCREEN_W"] - upkeep_surf.get_width() - 40
+    screen.blit(upkeep_surf, (upkeep_x, loss_line_y))
 
     if placement_mode and selected_bldg:
         cell = utils["grid_cell_at"](*mouse_pos, layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"], const["FREE_ROWS"], const["FREE_COLS"])
@@ -506,7 +541,7 @@ def update(events, mouse_pos, assets):
                     dr, dc = selected_grid_cell
                     removed_type = free_city[dr][dc]
                     free_city[dr][dc] = ' '
-                    free_profit -= 1
+                    demolition_penalty += 1  # Add penalty to turn end calculation
                     assets["system"]["set_msg"](f"Demolished {removed_type}. End turn to update finances.")
                     selected_grid_cell = None
                 else:
@@ -537,7 +572,7 @@ def update(events, mouse_pos, assets):
                     dr, dc = selected_grid_cell
                     removed_type = free_city[dr][dc]
                     free_city[dr][dc] = ' '
-                    free_profit -= 1
+                    demolition_penalty += 1  # Add penalty to turn end calculation
                     assets["system"]["set_msg"](f"Demolished {removed_type}. End turn to update finances.")
                     selected_grid_cell = None
                 else:
@@ -583,7 +618,7 @@ def save_game():
     )
 
 def load_save(assets_ref=None):
-    global free_city, free_turn, free_profit, free_score, consecutive_losses
+    global free_city, free_turn, free_profit, free_score, consecutive_losses, demolition_penalty, free_upkeep
     global loss_warning_shown, loss_warning_sidebar_active, show_fp_overlay
 
     data, err = save_manager.load_freeplay()
@@ -595,6 +630,7 @@ def load_save(assets_ref=None):
     free_profit = data["profit"]
     free_score = data["score"]
     free_city = data["city"]
+    demolition_penalty = 0
     consecutive_losses = data.get("consecutive_losses", 0)
     loss_warning_shown = data.get("loss_warning_shown", False)
     loss_warning_sidebar_active = data.get("loss_warning_sidebar_active", False)

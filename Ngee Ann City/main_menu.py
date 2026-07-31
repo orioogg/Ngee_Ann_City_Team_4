@@ -1,4 +1,5 @@
 import pygame
+import sys
 
 def update(events, mouse_pos, assets):
     next_state = "main_menu"
@@ -42,12 +43,16 @@ def update(events, mouse_pos, assets):
             elif event.key == pygame.K_2: import free_play_mode; free_play_mode.reset(); next_state = "freeplay"
             elif event.key == pygame.K_3: next_state = "load_game"
             elif event.key == pygame.K_4: next_state = "high_scores"
-            elif event.key == pygame.K_5: pygame.quit(); import sys; sys.exit()
+            elif event.key == pygame.K_5:
+                pygame.quit()
+                sys.exit()
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if buttons['1'].collidepoint(mouse_pos): import arcade_mode; arcade_mode.reset(); next_state = "arcade"
             elif buttons['2'].collidepoint(mouse_pos): import free_play_mode; free_play_mode.reset(); next_state = "freeplay"
             elif buttons['3'].collidepoint(mouse_pos): next_state = "load_game"
             elif buttons['4'].collidepoint(mouse_pos): next_state = "high_scores"
-            elif buttons['5'].collidepoint(mouse_pos): pygame.quit(); import sys; sys.exit()
+            elif buttons['5'].collidepoint(mouse_pos):
+                pygame.quit()
+                sys.exit()
 
     return next_state, buttons

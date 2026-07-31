@@ -315,9 +315,6 @@ def update(events, mouse_pos, assets):
     screen.fill((8, 3, 18))
     utils["draw_header"]("FREE PLAY MODE")
 
-    # Recalculate score dynamically on each frame render
-    free_score = calculate_score(free_city)
-
     # HUD: score left, profit + turn right — matches arcade layout
     s_score = fonts["medium"].render(f"SCORE: {free_score}", True, colors["GREEN_NEON"])
     p_color = colors["GREEN_NEON"] if free_profit >= 0 else colors["RED"]
@@ -419,8 +416,8 @@ def update(events, mouse_pos, assets):
     utils["draw_grid_labels"](const["FREE_ROWS"], const["FREE_COLS"], layout["FREE_GRID_X"], layout["FREE_GRID_Y"], layout["FREE_CELL"])
 
     loss_line_y = layout["FREE_GRID_Y"] + (const["FREE_ROWS"] * layout["FREE_CELL"]) + 58
-    loss_line_color = (255, 130, 130) if consecutive_losses >= 15 else (150, 150, 170)
-    loss_line = fonts["tiny"].render(f"Consecutive turns with losses: {consecutive_losses}", True, loss_line_color)
+    loss_line_color = (255, 80, 80) if consecutive_losses >= 15 else (255, 220, 60)
+    loss_line = fonts["small"].render(f"Consecutive turns with losses: {consecutive_losses}", True, loss_line_color)
     screen.blit(loss_line, (layout["FREE_GRID_X"], loss_line_y))
 
     if placement_mode and selected_bldg:

@@ -17,6 +17,8 @@ coin_warning_sidebar_active = False  # True once triggered - stays on permanentl
 save_popup_active = False  # True while the save result popup awaits dismissal
 save_popup_ok = False      # True = saved successfully, False = failed
 save_popup_msg = ""        # message to display in the save popup
+paused = False             # True when game is paused (ESC key)
+end_game_confirm_active = False  # True while the "End Game" confirmation dialog is shown
 
 # ── Murray — Restore full game state from save file ───────────────────────────
 # Reads arcade_save.json and repopulates all module globals so the player
@@ -29,7 +31,7 @@ def load_save():
     """
     global coins, turn, score, city, bldg1, bldg2
     global coin_warning_shown, coin_warning_popup_active, coin_warning_sidebar_active
-    global selected_bldg, placement_mode, demolish_mode
+    global selected_bldg, placement_mode, demolish_mode, paused, end_game_confirm_active
 
     data, err = save_manager.load_arcade()
     if data is None:
@@ -47,6 +49,8 @@ def load_save():
     selected_bldg  = None
     placement_mode = False
     demolish_mode  = False
+    paused             = False
+    end_game_confirm_active = False
 
     # Restore board dimensions so the grid renders at the correct size
     saved_rows = data.get("rows", len(city))
@@ -68,6 +72,7 @@ def reset():
     global coins, turn, score
     global city, selected_bldg, placement_mode, demolish_mode, coin_warning_shown
     global coin_warning_popup_active, coin_warning_sidebar_active
+    global paused, end_game_confirm_active
     coins = 16
     turn = 1
     score = 0
@@ -81,6 +86,8 @@ def reset():
     save_popup_active = False
     save_popup_ok = False
     save_popup_msg = ""
+    paused = False
+    end_game_confirm_active = False
     new_bldg_pair(['R', 'I', 'C', 'O', '*'])
 
 # ── Murray — Random building pair offered to player each turn ─────────────────
@@ -204,6 +211,7 @@ def update(events, mouse_pos, assets):
     global bldg1, bldg2, city, coin_warning_shown
     global coin_warning_popup_active, coin_warning_sidebar_active
     global save_popup_active, save_popup_ok, save_popup_msg
+    global paused, end_game_confirm_active
     next_state = "arcade"
     
     screen = assets["screen"]
@@ -303,7 +311,7 @@ def update(events, mouse_pos, assets):
     utils["draw_btn"](end_turn_r, "[E]  END TURN",  fonts["small"], mouse_pos, color=colors["GOLD"])
     utils["draw_btn"](demo_r,     "[D]  DEMOLISH",  fonts["small"], mouse_pos, color=demo_bg)
     utils["draw_btn"](save_r,     "[S]  SAVE GAME",  fonts["small"], mouse_pos, color=colors["CYBER_CYAN"])
-    utils["draw_btn"](menu_r,     "[Q]  MAIN MENU",  fonts["small"], mouse_pos)
+    utils["draw_btn"](menu_r,     "[ESC]  PAUSE",  fonts["small"], mouse_pos)
 
     # Core Matrix Grid Renderer 
     for r in range(const["ARCADE_ROWS"]):
@@ -365,6 +373,72 @@ def update(events, mouse_pos, assets):
         save_ok_r = pygame.Rect(box_rect.centerx - 80, box_rect.bottom - 58, 160, 40)
         utils["draw_btn"](save_ok_r, "OK", fonts["medium"], mouse_pos, color=border_col)
 
+    # ── Pause Menu Overlay ────────────────────────────────────────────────────
+    # Displayed when the player presses ESC. Shows Resume, End Game, and a
+    # reminder that save files are not touched by ending the session.
+    pause_resume_r   = None
+    pause_endgame_r  = None
+
+    if paused and not end_game_confirm_active:
+        # Dim the game behind the menu
+        dim = pygame.Surface((assets["SCREEN_W"], assets["SCREEN_H"]), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 170))
+        screen.blit(dim, (0, 0))
+
+        box_w, box_h = 420, 260
+        box_rect = pygame.Rect((assets["SCREEN_W"] - box_w) // 2,
+                               (assets["SCREEN_H"] - box_h) // 2, box_w, box_h)
+        pygame.draw.rect(screen, (20, 5, 40), box_rect, border_radius=10)
+        pygame.draw.rect(screen, colors["CYBER_CYAN"], box_rect, 3, border_radius=10)
+
+        utils["draw_text_c"]("GAME PAUSED", fonts["medium"],
+                             colors["CYBER_CYAN"], box_rect.centerx, box_rect.y + 42)
+
+        pause_resume_r = pygame.Rect(box_rect.centerx - 150, box_rect.y + 90, 300, 46)
+        pause_endgame_r = pygame.Rect(box_rect.centerx - 150, box_rect.y + 152, 300, 46)
+
+        utils["draw_btn"](pause_resume_r,  "RESUME GAME",  fonts["small"], mouse_pos,
+                          color=colors["CYBER_CYAN"])
+        utils["draw_btn"](pause_endgame_r, "END GAME",     fonts["small"], mouse_pos,
+                          color=colors["RED"])
+
+        hint = fonts["tiny"].render("[ESC] Resume", True, (80, 80, 110))
+        screen.blit(hint, hint.get_rect(center=(box_rect.centerx, box_rect.bottom - 18)))
+
+    # ── End Game Confirmation Dialog ──────────────────────────────────────────
+    # Prevents accidental progress loss: player must explicitly confirm before
+    # the session is cleared. Cancelling returns seamlessly to the paused game.
+    confirm_yes_r = None
+    confirm_no_r  = None
+
+    if end_game_confirm_active:
+        dim = pygame.Surface((assets["SCREEN_W"], assets["SCREEN_H"]), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 185))
+        screen.blit(dim, (0, 0))
+
+        box_w, box_h = 500, 240
+        box_rect = pygame.Rect((assets["SCREEN_W"] - box_w) // 2,
+                               (assets["SCREEN_H"] - box_h) // 2, box_w, box_h)
+        pygame.draw.rect(screen, (25, 5, 10), box_rect, border_radius=10)
+        pygame.draw.rect(screen, colors["RED"], box_rect, 3, border_radius=10)
+
+        utils["draw_text_c"]("END GAME?", fonts["medium"],
+                             colors["RED"], box_rect.centerx, box_rect.y + 44)
+        utils["draw_text_c"]("Your current progress will be lost.",
+                             fonts["small"], (220, 220, 220),
+                             box_rect.centerx, box_rect.y + 94)
+        utils["draw_text_c"]("(Existing save files will not be affected.)",
+                             fonts["tiny"], (140, 140, 160),
+                             box_rect.centerx, box_rect.y + 122)
+
+        confirm_yes_r = pygame.Rect(box_rect.centerx - 160, box_rect.bottom - 68, 140, 44)
+        confirm_no_r  = pygame.Rect(box_rect.centerx + 20,  box_rect.bottom - 68, 140, 44)
+
+        utils["draw_btn"](confirm_yes_r, "YES, END", fonts["small"], mouse_pos,
+                          color=colors["RED"])
+        utils["draw_btn"](confirm_no_r,  "CANCEL",   fonts["small"], mouse_pos,
+                          color=colors["CYBER_CYAN"])
+
     # Event Interface Router
     for event in events:
         if save_popup_active:
@@ -379,9 +453,41 @@ def update(events, mouse_pos, assets):
                 coin_warning_popup_active = False
             continue
 
+        # ── End Game confirmation dialog events ───────────────────────────────
+        if end_game_confirm_active:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if confirm_yes_r and confirm_yes_r.collidepoint(mouse_pos):
+                    # Confirmed: clear volatile session data and return to main menu
+                    reset()
+                    return "main_menu", {}
+                elif confirm_no_r and confirm_no_r.collidepoint(mouse_pos):
+                    # Cancelled: close dialog, stay paused
+                    end_game_confirm_active = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    # ESC cancels the confirm dialog, not the whole pause
+                    end_game_confirm_active = False
+            continue
+
+        # ── Pause menu events ─────────────────────────────────────────────────
+        if paused:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if pause_resume_r and pause_resume_r.collidepoint(mouse_pos):
+                    paused = False
+                elif pause_endgame_r and pause_endgame_r.collidepoint(mouse_pos):
+                    end_game_confirm_active = True
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    paused = False
+            continue
+
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_q: next_state = "main_menu"
-            elif event.key == pygame.K_ESCAPE: selected_bldg = None; placement_mode = False; demolish_mode = False
+            if event.key == pygame.K_ESCAPE:
+                # Open pause menu (deselect any active modes first)
+                selected_bldg = None
+                placement_mode = False
+                demolish_mode = False
+                paused = True
             elif event.key == pygame.K_1: selected_bldg = bldg1; placement_mode = True; demolish_mode = False
             elif event.key == pygame.K_2: selected_bldg = bldg2; placement_mode = True; demolish_mode = False
             elif event.key == pygame.K_d: selected_bldg = None; placement_mode = False; demolish_mode = not demolish_mode
@@ -411,7 +517,12 @@ def update(events, mouse_pos, assets):
                 save_popup_ok = ok
                 save_popup_msg = msg
                 save_popup_active = True
-            elif menu_r.collidepoint(mouse_pos): next_state = "main_menu"
+            elif menu_r.collidepoint(mouse_pos):
+                # Clicking the PAUSE button opens the pause menu
+                selected_bldg = None
+                placement_mode = False
+                demolish_mode = False
+                paused = True
             elif demo_r.collidepoint(mouse_pos):
                 demolish_mode = not demolish_mode
                 selected_bldg = None
@@ -480,7 +591,7 @@ def update(events, mouse_pos, assets):
     return next_state, {
         'btn1': btn1, 
         'btn2': btn2, 
-        'menu': menu_r, 
+        'pause': menu_r, 
         'demolish': demo_r,
         'save': save_r,
         'end_turn': end_turn_r,

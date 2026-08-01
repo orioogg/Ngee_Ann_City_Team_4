@@ -12,9 +12,12 @@ _DIR = os.path.dirname(os.path.abspath(__file__))
 ARCADE_SAVE_PATH = os.path.join(_DIR, "arcade_save.json")
 LEADERBOARD_PATH = os.path.join(_DIR, "leaderboard.json")
 SAVES_DIR = os.path.join(_DIR, "saves")
+ARCADE_SAVES_DIR = os.path.join(SAVES_DIR, "arcade")
+FREEPLAY_SAVES_DIR = os.path.join(SAVES_DIR, "freeplay")
 
-# Ensure the dedicated saves folder exists
-os.makedirs(SAVES_DIR, exist_ok=True)
+# Ensure the dedicated saves folders exist
+os.makedirs(ARCADE_SAVES_DIR, exist_ok=True)
+os.makedirs(FREEPLAY_SAVES_DIR, exist_ok=True)
 
 LEADERBOARD_LIMIT = 10
 
@@ -64,13 +67,90 @@ def arcade_save_info():
     return f"Turn {data['turn']}  |  Score {data['score']}  |  Coins {data['coins']}"
 
 
+# --- Arcade Named Save Operations (for arcade/freeplay folder structure) ---
+
+def get_arcade_named_filepath(filename):
+    """Get the full path for an arcade save file in the arcade folder."""
+    clean_name = filename.strip()
+    if not clean_name.endswith(".json"):
+        clean_name += ".json"
+    return os.path.join(ARCADE_SAVES_DIR, clean_name)
+
+
+def arcade_named_save_exists(filename):
+    """Check if an arcade save with the given filename exists."""
+    path = get_arcade_named_filepath(filename)
+    return os.path.exists(path)
+
+
+def save_arcade_named(filename, coins, turn, score, city, bldg1, bldg2,
+                      coin_warning_shown, coin_warning_sidebar_active):
+    """Save arcade game with a custom filename to the arcade folder."""
+    if not filename or not filename.strip():
+        return False, "Filename cannot be empty!"
+
+    path = get_arcade_named_filepath(filename)
+    data = {
+        "filename": filename.strip(),
+        "coins": coins,
+        "turn": turn,
+        "score": score,
+        "city": city,
+        "rows": len(city),
+        "cols": len(city[0]) if city else 0,
+        "bldg1": bldg1,
+        "bldg2": bldg2,
+        "coin_warning_shown": coin_warning_shown,
+        "coin_warning_sidebar_active": coin_warning_sidebar_active,
+    }
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        return True, f"Arcade game saved as '{filename.strip()}'!"
+    except Exception as e:
+        return False, f"Save failed: {e}"
+
+
+def load_arcade_named(filepath):
+    """Load an arcade save from a specific file path."""
+    if not os.path.exists(filepath):
+        return None, "Save file not found."
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data, None
+    except Exception as e:
+        return None, f"Load failed: {e}"
+
+
+def list_arcade_saves():
+    """Returns a list of available arcade save files info dictionaries."""
+    saves = []
+    if not os.path.exists(ARCADE_SAVES_DIR):
+        return saves
+
+    for fname in os.listdir(ARCADE_SAVES_DIR):
+        if fname.endswith(".json"):
+            fpath = os.path.join(ARCADE_SAVES_DIR, fname)
+            data, err = load_arcade_named(fpath)
+            if data:
+                saves.append({
+                    "path": fpath,
+                    "filename": fname[:-5],
+                    "turn": data.get("turn", 1),
+                    "score": data.get("score", 0),
+                    "coins": data.get("coins", 16)
+                })
+    return saves
+
+
 # --- Free Play Save Operations ---
 
 def get_freeplay_filepath(filename):
     clean_name = filename.strip()
     if not clean_name.endswith(".json"):
         clean_name += ".json"
-    return os.path.join(SAVES_DIR, clean_name)
+    return os.path.join(FREEPLAY_SAVES_DIR, clean_name)
 
 
 def freeplay_save_exists(filename):
@@ -118,12 +198,12 @@ def load_freeplay(filepath):
 def list_freeplay_saves():
     """Returns a list of available freeplay save files info dictionaries."""
     saves = []
-    if not os.path.exists(SAVES_DIR):
+    if not os.path.exists(FREEPLAY_SAVES_DIR):
         return saves
 
-    for fname in os.listdir(SAVES_DIR):
+    for fname in os.listdir(FREEPLAY_SAVES_DIR):
         if fname.endswith(".json"):
-            fpath = os.path.join(SAVES_DIR, fname)
+            fpath = os.path.join(FREEPLAY_SAVES_DIR, fname)
             data, err = load_freeplay(fpath)
             if data:
                 saves.append({

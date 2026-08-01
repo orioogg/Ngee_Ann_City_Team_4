@@ -2,9 +2,10 @@ import pygame
 import save_manager
 
 selected_fp_index = 0
+selected_arcade_index = 0
 
 def update(events, mouse_pos, assets):
-    global selected_fp_index
+    global selected_fp_index, selected_arcade_index
     screen = assets["screen"]
     utils  = assets["utils"]
     fonts  = assets["fonts"]
@@ -20,6 +21,7 @@ def update(events, mouse_pos, assets):
     utils["draw_header"]("LOAD SAVED GAME")
 
     arcade_info = save_manager.arcade_save_info()
+    arcade_saves = save_manager.list_arcade_saves()
     freeplay_saves = save_manager.list_freeplay_saves()
 
     panel_w = 340
@@ -44,17 +46,29 @@ def update(events, mouse_pos, assets):
     # --- Arcade Panel ---
     draw_panel_base(arcade_x, "ARCADE MODE", colors["CYBER_CYAN"])
     load_arcade_btn = None
-    if arcade_info:
-        parts = [p.strip() for p in arcade_info.split("|")]
-        start_y = panel_y + 90
-        for i, part in enumerate(parts):
-            line = fonts["small"].render(part, True, (220, 220, 220))
-            screen.blit(line, line.get_rect(center=(arcade_x + panel_w // 2, start_y + i * 34)))
+    arcade_prev_btn, arcade_next_btn = None, None
+
+    if arcade_saves:
+        if selected_arcade_index >= len(arcade_saves):
+            selected_arcade_index = 0
+
+        curr_save = arcade_saves[selected_arcade_index]
+        
+        utils["draw_text_c"](f"File: {curr_save['filename']}", fonts["small"], colors["GOLD"], arcade_x + panel_w // 2, panel_y + 80)
+        utils["draw_text_c"](f"Turn: {curr_save['turn']}  |  Score: {curr_save['score']}", fonts["tiny"], (220, 220, 220), arcade_x + panel_w // 2, panel_y + 115)
+        utils["draw_text_c"](f"Coins: {curr_save['coins']}", fonts["tiny"], colors["CYBER_CYAN"], arcade_x + panel_w // 2, panel_y + 138)
+
+        if len(arcade_saves) > 1:
+            utils["draw_text_c"](f"({selected_arcade_index + 1} of {len(arcade_saves)})", fonts["tiny"], (140, 140, 170), arcade_x + panel_w // 2, panel_y + 165)
+            arcade_prev_btn = pygame.Rect(arcade_x + 20, panel_y + 152, 40, 28)
+            arcade_next_btn = pygame.Rect(arcade_x + panel_w - 60, panel_y + 152, 40, 28)
+            utils["draw_btn"](arcade_prev_btn, "<", fonts["small"], mouse_pos)
+            utils["draw_btn"](arcade_next_btn, ">", fonts["small"], mouse_pos)
 
         load_arcade_btn = pygame.Rect(arcade_x + panel_w // 2 - 110, panel_y + panel_h - 58, 220, 44)
         utils["draw_btn"](load_arcade_btn, "LOAD ARCADE SAVE", fonts["small"], mouse_pos, color=colors["CYBER_CYAN"])
     else:
-        no_save = fonts["small"].render("No save file found.", True, (100, 100, 120))
+        no_save = fonts["small"].render("No save files found.", True, (100, 100, 120))
         screen.blit(no_save, no_save.get_rect(center=(arcade_x + panel_w // 2, panel_y + panel_h // 2)))
 
     # --- Free Play Panel ---
@@ -95,9 +109,18 @@ def update(events, mouse_pos, assets):
         if event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_ESCAPE, pygame.K_q):
                 next_state = "main_menu"
-            elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER) and arcade_info:
+            elif event.key == pygame.K_LEFT:
+                # Navigate arcade saves with left arrow
+                if arcade_saves and len(arcade_saves) > 1:
+                    selected_arcade_index = (selected_arcade_index - 1) % len(arcade_saves)
+            elif event.key == pygame.K_RIGHT:
+                # Navigate arcade saves with right arrow
+                if arcade_saves and len(arcade_saves) > 1:
+                    selected_arcade_index = (selected_arcade_index + 1) % len(arcade_saves)
+            elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER) and arcade_saves:
                 import arcade_mode
-                ok, msg = arcade_mode.load_save()
+                curr_save = arcade_saves[selected_arcade_index]
+                ok, msg = arcade_mode.load_save_from_file(curr_save["path"])
                 if ok:
                     next_state = "arcade"
                 else:
@@ -108,11 +131,16 @@ def update(events, mouse_pos, assets):
                 next_state = "main_menu"
             elif load_arcade_btn and load_arcade_btn.collidepoint(mouse_pos):
                 import arcade_mode
-                ok, msg = arcade_mode.load_save()
+                curr_save = arcade_saves[selected_arcade_index]
+                ok, msg = arcade_mode.load_save_from_file(curr_save["path"])
                 if ok:
                     next_state = "arcade"
                 else:
                     assets["system"]["set_msg"](msg)
+            elif arcade_prev_btn and arcade_prev_btn.collidepoint(mouse_pos):
+                selected_arcade_index = (selected_arcade_index - 1) % len(arcade_saves)
+            elif arcade_next_btn and arcade_next_btn.collidepoint(mouse_pos):
+                selected_arcade_index = (selected_arcade_index + 1) % len(arcade_saves)
             elif fp_prev_btn and fp_prev_btn.collidepoint(mouse_pos):
                 selected_fp_index = (selected_fp_index - 1) % len(freeplay_saves)
             elif fp_next_btn and fp_next_btn.collidepoint(mouse_pos):

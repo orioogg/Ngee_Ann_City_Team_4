@@ -17,8 +17,26 @@ coin_warning_sidebar_active = False  # True once triggered - stays on permanentl
 save_popup_active = False  # True while the save result popup awaits dismissal
 save_popup_ok = False      # True = saved successfully, False = failed
 save_popup_msg = ""        # message to display in the save popup
-paused = False             # True when game is paused (ESC key)
+paused = False             # True when game is paused (pause button / ESC)
 end_game_confirm_active = False  # True while the "End Game" confirmation dialog is shown
+
+# ── Murray — Save-as filename flow ─────────────────────────────────────────
+# save_dialog_active: filename entry box is open, awaiting a name to save under
+# save_filename_input: the text the player has typed so far
+# save_dialog_error: inline validation message (e.g. empty filename)
+# overwrite_confirm_active: a save with this name already exists, confirm first
+# pending_filename: the filename waiting on the overwrite confirmation
+# save_dialog_return_to_pause: whether cancelling the flow should reopen the pause menu
+save_dialog_active = False
+save_filename_input = ""
+save_dialog_error = ""
+overwrite_confirm_active = False
+pending_filename = ""
+save_dialog_return_to_pause = False
+
+# Characters not allowed in filenames across common filesystems
+_FILENAME_BLOCKLIST = set('\\/:*?"<>|')
+
 
 # ── Murray — Restore full game state from save file ───────────────────────────
 # Reads arcade_save.json and repopulates all module globals so the player
@@ -62,6 +80,44 @@ def load_save():
     return True, "Arcade game loaded!"
 
 
+def load_save_from_file(filepath):
+    """
+    Load arcade game state from a specific file path.
+    Returns (True, message) on success, (False, message) on failure.
+    """
+    global coins, turn, score, city, bldg1, bldg2
+    global coin_warning_shown, coin_warning_popup_active, coin_warning_sidebar_active
+    global selected_bldg, placement_mode, demolish_mode, paused, end_game_confirm_active
+
+    data, err = save_manager.load_arcade_named(filepath)
+    if data is None:
+        return False, err
+
+    coins  = data["coins"]
+    turn   = data["turn"]
+    score  = data["score"]
+    city   = data["city"]
+    bldg1  = data["bldg1"]
+    bldg2  = data["bldg2"]
+    coin_warning_shown           = data.get("coin_warning_shown", False)
+    coin_warning_sidebar_active  = data.get("coin_warning_sidebar_active", False)
+    coin_warning_popup_active    = False  # never restore a blocking popup
+    selected_bldg  = None
+    placement_mode = False
+    demolish_mode  = False
+    paused             = False
+    end_game_confirm_active = False
+
+    # Restore board dimensions so the grid renders at the correct size
+    saved_rows = data.get("rows", len(city))
+    saved_cols = data.get("cols", len(city[0]) if city else 20)
+    # Ensure the city grid matches the saved dimensions (guard against corrupt data)
+    if len(city) != saved_rows or (city and len(city[0]) != saved_cols):
+        city = [[' '] * saved_cols for _ in range(saved_rows)]
+
+    return True, "Arcade game loaded!"
+
+
 def init_mode(assets_ref):
     global city
     c = assets_ref["constants"]
@@ -73,6 +129,8 @@ def reset():
     global city, selected_bldg, placement_mode, demolish_mode, coin_warning_shown
     global coin_warning_popup_active, coin_warning_sidebar_active
     global paused, end_game_confirm_active
+    global save_dialog_active, save_filename_input, save_dialog_error
+    global overwrite_confirm_active, pending_filename, save_dialog_return_to_pause
     coins = 16
     turn = 1
     score = 0
@@ -88,6 +146,12 @@ def reset():
     save_popup_msg = ""
     paused = False
     end_game_confirm_active = False
+    save_dialog_active = False
+    save_filename_input = ""
+    save_dialog_error = ""
+    overwrite_confirm_active = False
+    pending_filename = ""
+    save_dialog_return_to_pause = False
     new_bldg_pair(['R', 'I', 'C', 'O', '*'])
 
 # ── Murray — Random building pair offered to player each turn ─────────────────
@@ -205,6 +269,54 @@ def calculate_total_score():
                 total += calculate_building_score(r, c)
     return total
 
+
+# ── Murray — Save-as flow helpers ──────────────────────────────────────────
+def _open_save_dialog(return_to_pause=False):
+    """Open the filename entry dialog, closing the pause menu first if open."""
+    global save_dialog_active, save_filename_input, save_dialog_error
+    global save_dialog_return_to_pause, paused
+    save_filename_input = ""
+    save_dialog_error = ""
+    save_dialog_return_to_pause = return_to_pause
+    save_dialog_active = True
+    paused = False
+
+
+def _commit_save(filename):
+    """Actually write the save file and pop up the result."""
+    global save_popup_ok, save_popup_msg, save_popup_active
+    global save_dialog_active, overwrite_confirm_active, pending_filename
+    ok, msg = save_manager.save_arcade_named(
+        filename, coins, turn, score, city, bldg1, bldg2,
+        coin_warning_shown, coin_warning_sidebar_active
+    )
+    save_popup_ok = ok
+    save_popup_msg = msg
+    save_popup_active = True
+    save_dialog_active = False
+    overwrite_confirm_active = False
+    pending_filename = ""
+
+
+def _attempt_save():
+    """
+    Validate the typed filename and either save immediately or, if a save
+    with that name already exists, ask the player to confirm overwriting it.
+    """
+    global save_dialog_error, save_dialog_active, overwrite_confirm_active, pending_filename
+    name = save_filename_input.strip()
+    if not name:
+        save_dialog_error = "Filename cannot be empty."
+        return
+
+    if save_manager.arcade_named_save_exists(name):
+        pending_filename = name
+        overwrite_confirm_active = True
+        save_dialog_active = False
+    else:
+        _commit_save(name)
+
+
 def update(events, mouse_pos, assets):
     global coins, turn, score
     global selected_bldg, placement_mode, demolish_mode
@@ -212,6 +324,8 @@ def update(events, mouse_pos, assets):
     global coin_warning_popup_active, coin_warning_sidebar_active
     global save_popup_active, save_popup_ok, save_popup_msg
     global paused, end_game_confirm_active
+    global save_dialog_active, save_filename_input, save_dialog_error
+    global overwrite_confirm_active, pending_filename, save_dialog_return_to_pause
     next_state = "arcade"
     
     screen = assets["screen"]
@@ -301,17 +415,17 @@ def update(events, mouse_pos, assets):
         utils["draw_text_c"]("WARNING:", fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 14)
         utils["draw_text_c"]("Only 5 coins left!", fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 30)
 
-    end_turn_r = pygame.Rect(10, assets["SCREEN_H"] - 190, layout["SIDEBAR_W"] - 20, 38)
+    pause_r    = pygame.Rect(10, assets["SCREEN_H"] - 190, layout["SIDEBAR_W"] - 20, 38)
     demo_r     = pygame.Rect(10, assets["SCREEN_H"] - 145, layout["SIDEBAR_W"] - 20, 38)
     save_r     = pygame.Rect(10, assets["SCREEN_H"] - 100, layout["SIDEBAR_W"] - 20, 38)
     menu_r     = pygame.Rect(10, assets["SCREEN_H"] - 55,  layout["SIDEBAR_W"] - 20, 38)
 
     demo_bg = (130, 40, 40) if demolish_mode else (180, 60, 60)
     
-    utils["draw_btn"](end_turn_r, "[E]  END TURN",  fonts["small"], mouse_pos, color=colors["GOLD"])
+    utils["draw_btn"](pause_r,    "[ESC]  PAUSE",  fonts["small"], mouse_pos)
     utils["draw_btn"](demo_r,     "[D]  DEMOLISH",  fonts["small"], mouse_pos, color=demo_bg)
     utils["draw_btn"](save_r,     "[S]  SAVE GAME",  fonts["small"], mouse_pos, color=colors["CYBER_CYAN"])
-    utils["draw_btn"](menu_r,     "[ESC]  PAUSE",  fonts["small"], mouse_pos)
+    utils["draw_btn"](menu_r,     "[Q]  MAIN MENU",  fonts["small"], mouse_pos, color=(220, 50, 50))
 
     # Core Matrix Grid Renderer 
     for r in range(const["ARCADE_ROWS"]):
@@ -346,6 +460,71 @@ def update(events, mouse_pos, assets):
         understood_r = pygame.Rect(box_rect.centerx - 90, box_rect.bottom - 55, 180, 42)
         utils["draw_btn"](understood_r, "UNDERSTOOD", fonts["small"], mouse_pos, color=colors["GOLD"])
 
+    # ── Murray — Save-as filename entry dialog ─────────────────────────────────
+    # Lets the player type a custom filename before saving. Shows an inline
+    # error if they try to confirm with an empty name.
+    save_confirm_r = None
+    save_cancel_r = None
+    if save_dialog_active:
+        dim = pygame.Surface((assets["SCREEN_W"], assets["SCREEN_H"]), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 165))
+        screen.blit(dim, (0, 0))
+
+        box_w, box_h = 480, 230
+        box_rect = pygame.Rect((assets["SCREEN_W"] - box_w) // 2,
+                               (assets["SCREEN_H"] - box_h) // 2, box_w, box_h)
+        pygame.draw.rect(screen, (20, 5, 35), box_rect, border_radius=10)
+        pygame.draw.rect(screen, colors["CYBER_CYAN"], box_rect, 3, border_radius=10)
+
+        utils["draw_text_c"]("SAVE GAME", fonts["medium"], colors["CYBER_CYAN"],
+                             box_rect.centerx, box_rect.y + 38)
+        utils["draw_text_c"]("Enter a filename:", fonts["tiny"], (200, 200, 200),
+                             box_rect.centerx, box_rect.y + 70)
+
+        input_r = pygame.Rect(box_rect.x + 30, box_rect.y + 88, box_w - 60, 40)
+        pygame.draw.rect(screen, (10, 10, 20), input_r, border_radius=4)
+        pygame.draw.rect(screen, colors["GOLD"] if save_dialog_error else colors["CYBER_CYAN"], input_r, 2, border_radius=4)
+        display_text = save_filename_input if save_filename_input else ""
+        cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else ""
+        s_input = fonts["small"].render(display_text + cursor, True, (255, 255, 255))
+        screen.blit(s_input, (input_r.x + 8, input_r.centery - s_input.get_height() // 2))
+
+        if save_dialog_error:
+            utils["draw_text_c"](save_dialog_error, fonts["tiny"], (255, 100, 100),
+                                 box_rect.centerx, input_r.bottom + 16)
+
+        save_confirm_r = pygame.Rect(box_rect.centerx - 160, box_rect.bottom - 55, 140, 42)
+        save_cancel_r  = pygame.Rect(box_rect.centerx + 20,  box_rect.bottom - 55, 140, 42)
+        utils["draw_btn"](save_confirm_r, "SAVE", fonts["small"], mouse_pos, color=colors["GREEN_NEON"])
+        utils["draw_btn"](save_cancel_r,  "CANCEL", fonts["small"], mouse_pos, color=colors["CYBER_CYAN"])
+
+    # ── Murray — Overwrite confirmation ─────────────────────────────────────────
+    # Shown when the chosen filename already has a save on disk.
+    overwrite_yes_r = None
+    overwrite_no_r = None
+    if overwrite_confirm_active:
+        dim = pygame.Surface((assets["SCREEN_W"], assets["SCREEN_H"]), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 175))
+        screen.blit(dim, (0, 0))
+
+        box_w, box_h = 480, 210
+        box_rect = pygame.Rect((assets["SCREEN_W"] - box_w) // 2,
+                               (assets["SCREEN_H"] - box_h) // 2, box_w, box_h)
+        pygame.draw.rect(screen, (30, 20, 5), box_rect, border_radius=10)
+        pygame.draw.rect(screen, colors["GOLD"], box_rect, 3, border_radius=10)
+
+        utils["draw_text_c"]("OVERWRITE SAVE?", fonts["medium"], colors["GOLD"],
+                             box_rect.centerx, box_rect.y + 42)
+        utils["draw_text_c"](f'A save named "{pending_filename}" already exists.',
+                             fonts["small"], (220, 220, 220), box_rect.centerx, box_rect.y + 90)
+        utils["draw_text_c"]("This will replace it.", fonts["tiny"], (180, 180, 180),
+                             box_rect.centerx, box_rect.y + 114)
+
+        overwrite_yes_r = pygame.Rect(box_rect.centerx - 160, box_rect.bottom - 55, 140, 42)
+        overwrite_no_r  = pygame.Rect(box_rect.centerx + 20,  box_rect.bottom - 55, 140, 42)
+        utils["draw_btn"](overwrite_yes_r, "OVERWRITE", fonts["small"], mouse_pos, color=colors["RED"] if "RED" in colors else (220, 50, 50))
+        utils["draw_btn"](overwrite_no_r,  "CANCEL",     fonts["small"], mouse_pos, color=colors["CYBER_CYAN"])
+
     # ── Murray — Save result popup ─────────────────────────────────────────────
     # Blocks all input until dismissed. Shows green border on success,
     # red border on failure, with the exact save/error message.
@@ -374,9 +553,10 @@ def update(events, mouse_pos, assets):
         utils["draw_btn"](save_ok_r, "OK", fonts["medium"], mouse_pos, color=border_col)
 
     # ── Pause Menu Overlay ────────────────────────────────────────────────────
-    # Displayed when the player presses ESC. Shows Resume, End Game, and a
-    # reminder that save files are not touched by ending the session.
+    # Displayed when the player opens Pause. Shows Resume, Save Game, End Game,
+    # and a reminder that save files are not touched by ending the session.
     pause_resume_r   = None
+    pause_save_r     = None
     pause_endgame_r  = None
 
     if paused and not end_game_confirm_active:
@@ -385,7 +565,7 @@ def update(events, mouse_pos, assets):
         dim.fill((0, 0, 0, 170))
         screen.blit(dim, (0, 0))
 
-        box_w, box_h = 420, 260
+        box_w, box_h = 420, 320
         box_rect = pygame.Rect((assets["SCREEN_W"] - box_w) // 2,
                                (assets["SCREEN_H"] - box_h) // 2, box_w, box_h)
         pygame.draw.rect(screen, (20, 5, 40), box_rect, border_radius=10)
@@ -394,11 +574,14 @@ def update(events, mouse_pos, assets):
         utils["draw_text_c"]("GAME PAUSED", fonts["medium"],
                              colors["CYBER_CYAN"], box_rect.centerx, box_rect.y + 42)
 
-        pause_resume_r = pygame.Rect(box_rect.centerx - 150, box_rect.y + 90, 300, 46)
-        pause_endgame_r = pygame.Rect(box_rect.centerx - 150, box_rect.y + 152, 300, 46)
+        pause_resume_r  = pygame.Rect(box_rect.centerx - 150, box_rect.y + 88, 300, 46)
+        pause_save_r    = pygame.Rect(box_rect.centerx - 150, box_rect.y + 148, 300, 46)
+        pause_endgame_r = pygame.Rect(box_rect.centerx - 150, box_rect.y + 208, 300, 46)
 
         utils["draw_btn"](pause_resume_r,  "RESUME GAME",  fonts["small"], mouse_pos,
                           color=colors["CYBER_CYAN"])
+        utils["draw_btn"](pause_save_r,    "SAVE GAME",    fonts["small"], mouse_pos,
+                          color=colors["GOLD"])
         utils["draw_btn"](pause_endgame_r, "END GAME",     fonts["small"], mouse_pos,
                           color=colors["RED"])
 
@@ -453,6 +636,47 @@ def update(events, mouse_pos, assets):
                 coin_warning_popup_active = False
             continue
 
+        # ── Overwrite confirmation events ───────────────────────────────────
+        if overwrite_confirm_active:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if overwrite_yes_r and overwrite_yes_r.collidepoint(mouse_pos):
+                    _commit_save(pending_filename)
+                elif overwrite_no_r and overwrite_no_r.collidepoint(mouse_pos):
+                    # Cancelled overwrite: go back to editing the filename
+                    overwrite_confirm_active = False
+                    pending_filename = ""
+                    save_dialog_active = True
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                overwrite_confirm_active = False
+                pending_filename = ""
+                save_dialog_active = True
+            continue
+
+        # ── Save-as filename dialog events ──────────────────────────────────
+        if save_dialog_active:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if save_confirm_r and save_confirm_r.collidepoint(mouse_pos):
+                    _attempt_save()
+                elif save_cancel_r and save_cancel_r.collidepoint(mouse_pos):
+                    save_dialog_active = False
+                    if save_dialog_return_to_pause:
+                        paused = True
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    _attempt_save()
+                elif event.key == pygame.K_ESCAPE:
+                    save_dialog_active = False
+                    if save_dialog_return_to_pause:
+                        paused = True
+                elif event.key == pygame.K_BACKSPACE:
+                    save_filename_input = save_filename_input[:-1]
+                    save_dialog_error = ""
+                elif event.unicode and event.unicode not in _FILENAME_BLOCKLIST and event.unicode.isprintable():
+                    if len(save_filename_input) < 60:
+                        save_filename_input += event.unicode
+                        save_dialog_error = ""
+            continue
+
         # ── End Game confirmation dialog events ───────────────────────────────
         if end_game_confirm_active:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -474,6 +698,8 @@ def update(events, mouse_pos, assets):
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if pause_resume_r and pause_resume_r.collidepoint(mouse_pos):
                     paused = False
+                elif pause_save_r and pause_save_r.collidepoint(mouse_pos):
+                    _open_save_dialog(return_to_pause=True)
                 elif pause_endgame_r and pause_endgame_r.collidepoint(mouse_pos):
                     end_game_confirm_active = True
             elif event.type == pygame.KEYDOWN:
@@ -483,7 +709,7 @@ def update(events, mouse_pos, assets):
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
-                # Open pause menu (deselect any active modes first)
+                # Open the pause menu (deselect any active modes first)
                 selected_bldg = None
                 placement_mode = False
                 demolish_mode = False
@@ -492,37 +718,26 @@ def update(events, mouse_pos, assets):
             elif event.key == pygame.K_2: selected_bldg = bldg2; placement_mode = True; demolish_mode = False
             elif event.key == pygame.K_d: selected_bldg = None; placement_mode = False; demolish_mode = not demolish_mode
             elif event.key == pygame.K_s:
-                ok, msg = save_manager.save_arcade(
-                    coins, turn, score, city, bldg1, bldg2,
-                    coin_warning_shown, coin_warning_sidebar_active
-                )
-                save_popup_ok = ok
-                save_popup_msg = msg
-                save_popup_active = True
+                _open_save_dialog()
+            elif event.key == pygame.K_q:
+                # Return to the main menu immediately, same as Free Play's menu button
+                reset()
+                return "main_menu", {}
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if btn1.collidepoint(mouse_pos): selected_bldg = bldg1; placement_mode = True; demolish_mode = False
             elif btn2.collidepoint(mouse_pos): selected_bldg = bldg2; placement_mode = True; demolish_mode = False
-            elif end_turn_r.collidepoint(mouse_pos):
-                turn += 1
-                income = calculate_total_city_coin_income()
-                coins += income
-                selected_bldg = None; placement_mode = False; demolish_mode = False
-                assets["system"]["set_msg"](f"Turn ended! (+{income} coin(s) earned)")
-                check_coin_warning(assets)
             elif save_r.collidepoint(mouse_pos):
-                ok, msg = save_manager.save_arcade(
-                    coins, turn, score, city, bldg1, bldg2,
-                    coin_warning_shown, coin_warning_sidebar_active
-                )
-                save_popup_ok = ok
-                save_popup_msg = msg
-                save_popup_active = True
-            elif menu_r.collidepoint(mouse_pos):
+                _open_save_dialog()
+            elif pause_r.collidepoint(mouse_pos):
                 # Clicking the PAUSE button opens the pause menu
                 selected_bldg = None
                 placement_mode = False
                 demolish_mode = False
                 paused = True
+            elif menu_r.collidepoint(mouse_pos):
+                # Return to the main menu immediately, same as Free Play's menu button
+                reset()
+                return "main_menu", {}
             elif demo_r.collidepoint(mouse_pos):
                 demolish_mode = not demolish_mode
                 selected_bldg = None
@@ -591,9 +806,9 @@ def update(events, mouse_pos, assets):
     return next_state, {
         'btn1': btn1, 
         'btn2': btn2, 
-        'pause': menu_r, 
+        'pause': pause_r,
+        'menu': menu_r, 
         'demolish': demo_r,
         'save': save_r,
-        'end_turn': end_turn_r,
         'score': score
     }

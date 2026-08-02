@@ -415,17 +415,15 @@ def update(events, mouse_pos, assets):
         utils["draw_text_c"]("WARNING:", fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 14)
         utils["draw_text_c"]("Only 5 coins left!", fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 30)
 
-    pause_r    = pygame.Rect(10, assets["SCREEN_H"] - 190, layout["SIDEBAR_W"] - 20, 38)
-    demo_r     = pygame.Rect(10, assets["SCREEN_H"] - 145, layout["SIDEBAR_W"] - 20, 38)
-    save_r     = pygame.Rect(10, assets["SCREEN_H"] - 100, layout["SIDEBAR_W"] - 20, 38)
-    menu_r     = pygame.Rect(10, assets["SCREEN_H"] - 55,  layout["SIDEBAR_W"] - 20, 38)
+    pause_r    = pygame.Rect(10, assets["SCREEN_H"] - 145, layout["SIDEBAR_W"] - 20, 38)
+    demo_r     = pygame.Rect(10, assets["SCREEN_H"] - 100, layout["SIDEBAR_W"] - 20, 38)
+    save_r     = pygame.Rect(10, assets["SCREEN_H"] - 55,  layout["SIDEBAR_W"] - 20, 38)
 
     demo_bg = (130, 40, 40) if demolish_mode else (180, 60, 60)
     
-    utils["draw_btn"](pause_r,    "[ESC]  PAUSE",  fonts["small"], mouse_pos)
+    utils["draw_btn"](pause_r,    "[ESC]  PAUSE",   fonts["small"], mouse_pos)
     utils["draw_btn"](demo_r,     "[D]  DEMOLISH",  fonts["small"], mouse_pos, color=demo_bg)
-    utils["draw_btn"](save_r,     "[S]  SAVE GAME",  fonts["small"], mouse_pos, color=colors["CYBER_CYAN"])
-    utils["draw_btn"](menu_r,     "[Q]  MAIN MENU",  fonts["small"], mouse_pos, color=(220, 50, 50))
+    utils["draw_btn"](save_r,     "[S]  SAVE GAME", fonts["small"], mouse_pos, color=colors["CYBER_CYAN"])
 
     # Core Matrix Grid Renderer 
     for r in range(const["ARCADE_ROWS"]):
@@ -719,10 +717,6 @@ def update(events, mouse_pos, assets):
             elif event.key == pygame.K_d: selected_bldg = None; placement_mode = False; demolish_mode = not demolish_mode
             elif event.key == pygame.K_s:
                 _open_save_dialog()
-            elif event.key == pygame.K_q:
-                # Return to the main menu immediately, same as Free Play's menu button
-                reset()
-                return "main_menu", {}
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if btn1.collidepoint(mouse_pos): selected_bldg = bldg1; placement_mode = True; demolish_mode = False
             elif btn2.collidepoint(mouse_pos): selected_bldg = bldg2; placement_mode = True; demolish_mode = False
@@ -734,10 +728,6 @@ def update(events, mouse_pos, assets):
                 placement_mode = False
                 demolish_mode = False
                 paused = True
-            elif menu_r.collidepoint(mouse_pos):
-                # Return to the main menu immediately, same as Free Play's menu button
-                reset()
-                return "main_menu", {}
             elif demo_r.collidepoint(mouse_pos):
                 demolish_mode = not demolish_mode
                 selected_bldg = None
@@ -807,7 +797,6 @@ def update(events, mouse_pos, assets):
         'btn1': btn1, 
         'btn2': btn2, 
         'pause': pause_r,
-        'menu': menu_r, 
         'demolish': demo_r,
         'save': save_r,
         'score': score

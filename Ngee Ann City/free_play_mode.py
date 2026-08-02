@@ -625,6 +625,39 @@ def update(events, mouse_pos, assets):
 
     # --- INPUT EVENT PROCESSING ---
     for event in events:
+        # ── End Game confirmation dialog events ───────────────────────────────
+        if end_game_confirm_active:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if confirm_yes_r and confirm_yes_r.collidepoint(mouse_pos):
+                    # Confirmed: clear volatile session data and return to main menu
+                    reset(assets)
+                    return "main_menu", {}
+                elif confirm_no_r and confirm_no_r.collidepoint(mouse_pos):
+                    # Cancelled: close dialog, stay paused
+                    end_game_confirm_active = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    # ESC cancels the confirm dialog, not the whole pause
+                    end_game_confirm_active = False
+            continue
+
+        # ── Pause menu events ─────────────────────────────────────────────────
+        if paused:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if pause_resume_r and pause_resume_r.collidepoint(mouse_pos):
+                    paused = False
+                elif pause_save_r and pause_save_r.collidepoint(mouse_pos):
+                    show_save_dialog = True
+                    save_filename_input = ""
+                    save_dialog_error = ""
+                    paused = False
+                elif pause_endgame_r and pause_endgame_r.collidepoint(mouse_pos):
+                    end_game_confirm_active = True
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    paused = False
+            continue
+
         if loss_warning_popup_active:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and loss_understood_r and loss_understood_r.collidepoint(mouse_pos):
                 loss_warning_popup_active = False
@@ -679,10 +712,12 @@ def update(events, mouse_pos, assets):
 
         # Standard Gameplay Controls
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_q:
-                reset(assets)
-                pygame.event.clear()
-                return "main_menu", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
+            if event.key == pygame.K_ESCAPE:
+                # Open the pause menu (deselect any active modes first)
+                selected_bldg = None
+                placement_mode = False
+                selected_grid_cell = None
+                paused = True
             elif event.key == pygame.K_s:
                 show_save_dialog = True
                 save_filename_input = ""
@@ -697,7 +732,7 @@ def update(events, mouse_pos, assets):
                 if calculate_profit(assets):
                     reset(assets)
                     pygame.event.clear()
-                    return "game_over", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
+                    return "game_over", {'pause': pause_r, 'demolish': demo_r, 'save': save_r, 'end_turn': end_turn_r, **bldg_btns}
                 selected_bldg = None; placement_mode = False; selected_grid_cell = None
             elif event.key == pygame.K_d:
                 if selected_grid_cell is not None:
@@ -711,10 +746,12 @@ def update(events, mouse_pos, assets):
                     assets["system"]["set_msg"]("Please select a building to demolish")
 
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if menu_r.collidepoint(mouse_pos):
-                reset(assets)
-                pygame.event.clear()
-                return "main_menu", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
+            if pause_r.collidepoint(mouse_pos):
+                # Clicking the PAUSE button opens the pause menu
+                selected_bldg = None
+                placement_mode = False
+                selected_grid_cell = None
+                paused = True
             
             if save_r.collidepoint(mouse_pos):
                 show_save_dialog = True
@@ -727,7 +764,7 @@ def update(events, mouse_pos, assets):
                 if calculate_profit(assets):
                     reset(assets)
                     pygame.event.clear()
-                    return "game_over", {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
+                    return "game_over", {'pause': pause_r, 'demolish': demo_r, 'save': save_r, 'end_turn': end_turn_r, **bldg_btns}
                 selected_bldg = None; placement_mode = False; selected_grid_cell = None
                 continue
 
@@ -768,7 +805,7 @@ def update(events, mouse_pos, assets):
                         else:
                             selected_grid_cell = None
 
-    return next_state, {'menu': menu_r, 'demolish': demo_r, 'end_turn': end_turn_r, **bldg_btns}
+    return next_state, {'pause': pause_r, 'demolish': demo_r, 'save': save_r, 'end_turn': end_turn_r, **bldg_btns}
 
 def load_save_file(filepath, assets_ref=None):
     global free_city, free_turn, free_profit, free_score, consecutive_losses, demolition_penalty, free_upkeep

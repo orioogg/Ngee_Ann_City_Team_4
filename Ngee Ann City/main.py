@@ -1,5 +1,4 @@
 # Run this code to start the game
-# Author: Jun Wei
 import pygame
 import random
 import sys

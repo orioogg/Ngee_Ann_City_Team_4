@@ -17,6 +17,8 @@ consecutive_losses = 0
 loss_warning_shown = False  
 loss_warning_popup_active = False  
 loss_warning_sidebar_active = False  
+paused = False                  # True when the pause menu is open
+end_game_confirm_active = False # True while the "End Game" confirmation dialog is shown
 
 # --- Save Dialog States ---
 show_save_dialog = False
@@ -39,6 +41,7 @@ def reset(assets=None):
     global free_city, free_turn, free_profit, free_score, free_upkeep, demolition_penalty, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, selected_grid_cell, consecutive_losses
     global loss_warning_shown, loss_warning_popup_active, loss_warning_sidebar_active
     global show_save_dialog, show_overwrite_dialog, save_filename_input, save_dialog_error
+    global paused, end_game_confirm_active
 
     free_city = [[' '] * 5 for _ in range(5)]
     free_turn = 1
@@ -60,6 +63,8 @@ def reset(assets=None):
     show_overwrite_dialog = False
     save_filename_input = ""
     save_dialog_error = ""
+    paused = False
+    end_game_confirm_active = False
 
     if assets:
         const = assets["constants"]
@@ -326,6 +331,7 @@ def update(events, mouse_pos, assets):
     global free_turn, free_profit, free_score, free_upkeep, show_fp_overlay, fp_overlay_timer, selected_bldg, placement_mode, free_city, selected_grid_cell, demolition_penalty
     global consecutive_losses, loss_warning_shown, loss_warning_popup_active, loss_warning_sidebar_active
     global show_save_dialog, show_overwrite_dialog, save_filename_input, save_dialog_error
+    global paused, end_game_confirm_active
 
     next_state = "freeplay"
     screen = assets["screen"]
@@ -419,16 +425,16 @@ def update(events, mouse_pos, assets):
         utils["draw_text_c"](line2, fonts["tiny"], (255, 130, 130), warn_box.centerx, warn_box.y + 30)
 
     # --- Sidebar Action Buttons ---
-    menu_r = pygame.Rect(10, assets["SCREEN_H"] - 55, layout["SIDEBAR_W"] - 20, 38)
-    utils["draw_btn"](menu_r, "[Q]  MAIN MENU", fonts["small"], mouse_pos, color=(220, 50, 50))
+    pause_r = pygame.Rect(10, assets["SCREEN_H"] - 190, layout["SIDEBAR_W"] - 20, 38)
+    utils["draw_btn"](pause_r, "[ESC]  PAUSE", fonts["small"], mouse_pos)
 
-    save_r = pygame.Rect(10, assets["SCREEN_H"] - 100, layout["SIDEBAR_W"] - 20, 38)
+    save_r = pygame.Rect(10, assets["SCREEN_H"] - 145, layout["SIDEBAR_W"] - 20, 38)
     utils["draw_btn"](save_r, "[S]  SAVE GAME", fonts["small"], mouse_pos, color=colors["CYBER_CYAN"])
 
-    demo_r = pygame.Rect(10, assets["SCREEN_H"] - 145, layout["SIDEBAR_W"] - 20, 38)
+    demo_r = pygame.Rect(10, assets["SCREEN_H"] - 100, layout["SIDEBAR_W"] - 20, 38)
     utils["draw_btn"](demo_r, "[D]  DEMOLISH", fonts["small"], mouse_pos, color=(180, 60, 60))
 
-    end_turn_r = pygame.Rect(10, assets["SCREEN_H"] - 190, layout["SIDEBAR_W"] - 20, 38)
+    end_turn_r = pygame.Rect(10, assets["SCREEN_H"] - 55, layout["SIDEBAR_W"] - 20, 38)
     utils["draw_btn"](end_turn_r, "[E]  END TURN", fonts["small"], mouse_pos, color=colors["GOLD"])
     
     draw_grid(screen, free_city, const["FREE_ROWS"], const["FREE_COLS"],
@@ -547,6 +553,75 @@ def update(events, mouse_pos, assets):
 
         utils["draw_btn"](ow_yes_btn, "OVERWRITE", fonts["small"], mouse_pos, color=colors["RED"])
         utils["draw_btn"](ow_no_btn, "CANCEL", fonts["small"], mouse_pos)
+
+    # ── Pause Menu Overlay ────────────────────────────────────────────────────
+    # Displayed when the player opens Pause. Shows Resume, Save Game, End Game,
+    # and a reminder that save files are not touched by ending the session.
+    pause_resume_r  = None
+    pause_save_r    = None
+    pause_endgame_r = None
+
+    if paused and not end_game_confirm_active:
+        dim = pygame.Surface((assets["SCREEN_W"], assets["SCREEN_H"]), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 170))
+        screen.blit(dim, (0, 0))
+
+        box_w, box_h = 420, 320
+        box_rect = pygame.Rect((assets["SCREEN_W"] - box_w) // 2,
+                               (assets["SCREEN_H"] - box_h) // 2, box_w, box_h)
+        pygame.draw.rect(screen, (20, 5, 40), box_rect, border_radius=10)
+        pygame.draw.rect(screen, colors["CYBER_CYAN"], box_rect, 3, border_radius=10)
+
+        utils["draw_text_c"]("GAME PAUSED", fonts["medium"],
+                             colors["CYBER_CYAN"], box_rect.centerx, box_rect.y + 42)
+
+        pause_resume_r  = pygame.Rect(box_rect.centerx - 150, box_rect.y + 88,  300, 46)
+        pause_save_r    = pygame.Rect(box_rect.centerx - 150, box_rect.y + 148, 300, 46)
+        pause_endgame_r = pygame.Rect(box_rect.centerx - 150, box_rect.y + 208, 300, 46)
+
+        utils["draw_btn"](pause_resume_r,  "RESUME GAME", fonts["small"], mouse_pos,
+                          color=colors["CYBER_CYAN"])
+        utils["draw_btn"](pause_save_r,    "SAVE GAME",   fonts["small"], mouse_pos,
+                          color=colors["GOLD"])
+        utils["draw_btn"](pause_endgame_r, "END GAME",    fonts["small"], mouse_pos,
+                          color=colors["RED"])
+
+        hint = fonts["tiny"].render("[ESC] Resume", True, (80, 80, 110))
+        screen.blit(hint, hint.get_rect(center=(box_rect.centerx, box_rect.bottom - 18)))
+
+    # ── End Game Confirmation Dialog ──────────────────────────────────────────
+    # Prevents accidental progress loss: player must explicitly confirm before
+    # the session is cleared. Cancelling returns seamlessly to the paused game.
+    confirm_yes_r = None
+    confirm_no_r  = None
+
+    if end_game_confirm_active:
+        dim = pygame.Surface((assets["SCREEN_W"], assets["SCREEN_H"]), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 185))
+        screen.blit(dim, (0, 0))
+
+        box_w, box_h = 500, 240
+        box_rect = pygame.Rect((assets["SCREEN_W"] - box_w) // 2,
+                               (assets["SCREEN_H"] - box_h) // 2, box_w, box_h)
+        pygame.draw.rect(screen, (25, 5, 10), box_rect, border_radius=10)
+        pygame.draw.rect(screen, colors["RED"], box_rect, 3, border_radius=10)
+
+        utils["draw_text_c"]("END GAME?", fonts["medium"],
+                             colors["RED"], box_rect.centerx, box_rect.y + 44)
+        utils["draw_text_c"]("Your current progress will be lost.",
+                             fonts["small"], (220, 220, 220),
+                             box_rect.centerx, box_rect.y + 94)
+        utils["draw_text_c"]("(Existing save files will not be affected.)",
+                             fonts["tiny"], (140, 140, 160),
+                             box_rect.centerx, box_rect.y + 122)
+
+        confirm_yes_r = pygame.Rect(box_rect.centerx - 160, box_rect.bottom - 68, 140, 44)
+        confirm_no_r  = pygame.Rect(box_rect.centerx + 20,  box_rect.bottom - 68, 140, 44)
+
+        utils["draw_btn"](confirm_yes_r, "YES, END", fonts["small"], mouse_pos,
+                          color=colors["RED"])
+        utils["draw_btn"](confirm_no_r,  "CANCEL",   fonts["small"], mouse_pos,
+                          color=colors["CYBER_CYAN"])
 
     # --- INPUT EVENT PROCESSING ---
     for event in events:

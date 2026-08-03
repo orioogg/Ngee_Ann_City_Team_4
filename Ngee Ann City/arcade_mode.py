@@ -42,44 +42,6 @@ _FILENAME_BLOCKLIST = set('\\/:*?"<>|')
 # Reads arcade_save.json and repopulates all module globals so the player
 # can resume exactly where they left off, including board dimensions,
 # building layout, score, coins, and warning states.
-def load_save():
-    """
-    Restore module globals from the arcade save file.
-    Returns (True, message) on success, (False, message) on failure.
-    """
-    global coins, turn, score, city, bldg1, bldg2
-    global coin_warning_shown, coin_warning_popup_active, coin_warning_sidebar_active
-    global selected_bldg, placement_mode, demolish_mode, paused, end_game_confirm_active
-
-    data, err = save_manager.load_arcade()
-    if data is None:
-        return False, err
-
-    coins  = data["coins"]
-    turn   = data["turn"]
-    score  = data["score"]
-    city   = data["city"]
-    bldg1  = data["bldg1"]
-    bldg2  = data["bldg2"]
-    coin_warning_shown           = data.get("coin_warning_shown", False)
-    coin_warning_sidebar_active  = data.get("coin_warning_sidebar_active", False)
-    coin_warning_popup_active    = False  # never restore a blocking popup
-    selected_bldg  = None
-    placement_mode = False
-    demolish_mode  = False
-    paused             = False
-    end_game_confirm_active = False
-
-    # Restore board dimensions so the grid renders at the correct size
-    saved_rows = data.get("rows", len(city))
-    saved_cols = data.get("cols", len(city[0]) if city else 20)
-    # Ensure the city grid matches the saved dimensions (guard against corrupt data)
-    if len(city) != saved_rows or (city and len(city[0]) != saved_cols):
-        city = [[' '] * saved_cols for _ in range(saved_rows)]
-
-    return True, "Arcade game loaded!"
-
-
 def load_save_from_file(filepath):
     """
     Load arcade game state from a specific file path.
@@ -182,6 +144,7 @@ def is_valid_placement(r, c, rows, cols):
 
     return False, "Must be adjacent to an existing building."
 
+
 def get_adjacent(r, c):
     neighbours = []
     for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
@@ -192,6 +155,7 @@ def get_adjacent(r, c):
                 neighbours.append(city[nr][nc])
     return neighbours
 
+# Called after placing demolish and check when its accurate
 def calculate_building_score(r, c):
     building = city[r][c]
     neighbours = get_adjacent(r, c)
@@ -261,6 +225,7 @@ def check_coin_warning(assets):
         coin_warning_shown = False
         coin_warning_sidebar_active = False
 
+# Total score calculation
 def calculate_total_score():
     total = 0
     for r in range(len(city)):
